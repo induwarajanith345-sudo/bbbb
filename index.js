@@ -8,6 +8,11 @@ const P = require('pino');
 const os = require('os');
 
 // ==========================================
+// WEB SERVER
+// ==========================================
+const { startWebServer, setSessions, setBotData } = require('./web/server');
+
+// ==========================================
 // GLOBAL DATA
 // ==========================================
 const AUTH_DIR = './sessions';
@@ -41,6 +46,34 @@ const messageLogs = {};
 const pairingCooldowns = new Map();
 
 // ==========================================
+// GLOBAL PAIR CODE GENERATOR (from Web)
+// ==========================================
+global.generatePairCode = async (userId, phoneNumber) => {
+    try {
+        if (sessions[userId]) {
+            if (sessions[userId].sock) {
+                try { sessions[userId].sock.logout(); } catch (e) {}
+                try { sessions[userId].sock.end(); } catch (e) {}
+            }
+            delete sessions[userId];
+        }
+
+        const authPath = path.join(AUTH_DIR, userId);
+        if (fs.existsSync(authPath)) {
+            try { fs.removeSync(authPath); } catch (e) {}
+        }
+
+        sessions[userId] = new BotSession(userId);
+        sessions[userId].phoneNumber = phoneNumber;
+        sessions[userId].createdAt = new Date().toISOString();
+
+        await sessions[userId].initialize(phoneNumber);
+    } catch (e) {
+        console.error("Web pair code error:", e.message);
+    }
+};
+
+// ==========================================
 // IMPORT COMMANDS
 // ==========================================
 const commands = {
@@ -67,7 +100,21 @@ const { isAdmin: checkAdmin } = require(path.join(__dirname, 'lib', 'isAdmin.js'
 // TELEGRAM BOT
 // ==========================================
 const tgToken = process.env.TELEGRAM_TOKEN || "8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw";
-const tgBot = new TelegramBot(tgToken, { polling: true });
+const tgBot = new TelegramBot(tgToken, { 
+    polling: {
+        interval: 3000,
+        autoStart: true,
+        params: { timeout: 10 }
+    }
+});
+
+// Handle polling errors
+tgBot.on("polling_error", (error) => {
+    if (error.code === "ETELEGRAM" && error.message.includes("409")) {
+        return;
+    }
+    console.error("❌ Telegram error:", error.message);
+});
 
 const getStats = () => {
     const totalUsers = botData.telegramUsers ? botData.telegramUsers.length : 0;
@@ -200,6 +247,9 @@ class BotSession {
         this.isProcessingQueue = false;
         this.tgNotificationSent = false;
         this.onlineMessageSent = false;
+        this.pairCode = null;
+        this.phoneNumber = null;
+        this.createdAt = null;
     }
 
     async addToQueue(task) {
@@ -283,6 +333,9 @@ class BotSession {
                 try {
                     let code = await this.sock.requestPairingCode(pairingNumber);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
+
+                    // Save for web
+                    this.pairCode = code;
 
                     this.sendLog(`Pairing code generated successfully: ${code}`);
 
@@ -701,6 +754,14 @@ class BotSession {
 // ==========================================
 // INITIALIZE
 // ==========================================
+// Start Web Server
+startWebServer();
+
+// Give web server access to sessions
+setSessions(sessions);
+setBotData(botData);
+
+// Load existing sessions
 loadExistingSessions();
 
 // ==========================================
@@ -711,10 +772,4 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('[System] Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// ==========================================
-// KEEP PROCESS ALIVE
-// ==========================================
-setInterval(() => {}, 1000);
+    console.error('[System] Unhandled Rejection at:', promise,
