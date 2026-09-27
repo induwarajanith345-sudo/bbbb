@@ -103,7 +103,6 @@ async function ytDownload(url, mode) {
         const u = pickUrl(r);
         if (u) return u;
     }
-    // yt-dlp fallback (URL විතරයි ගන්නේ — RAM save)
     return await new Promise((resolve) => {
         const fmt = mode === 'audio'
             ? 'bestaudio[ext=m4a]/bestaudio/best'
@@ -353,215 +352,15 @@ register('meme', ['memes'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 10. 😄 JOKE
-// =======================================================
-register('joke', ['jokes'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    try {
-        const r = await safeJson('https://official-joke-api.appspot.com/random_joke');
-        if (!r?.setup) throw new Error('හම්බුනේ නෑ!');
-        await sock.sendMessage(from, {
-            text: `😄 *Joke*\n\n${r.setup}\n\n||${r.punchline}||\n\n> ${BOT_NAME}`
-        }, { quoted: msg });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
-    }
-}, { public: true });
-
-// =======================================================
-// 11. 💬 QUOTE
-// =======================================================
-register('quote', ['quotes'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    try {
-        const r = await safeJson('https://zenquotes.io/api/random');
-        const q = r?.[0];
-        if (!q?.q) throw new Error('හම්බුනේ නෑ!');
-        await sock.sendMessage(from, {
-            text: `💬 *Quote*\n\n"${q.q}"\n\n— ${q.a}\n\n> ${BOT_NAME}`
-        }, { quoted: msg });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
-    }
-}, { public: true });
-
-// =======================================================
-// 12. 🎤 LYRICS
-// =======================================================
-register('lyrics', ['ly'], async (ctx) => {
-    const { sock, from, msg, args } = ctx;
-    if (!args[0]) return await sock.sendMessage(from, { text: '🎤 Usage: .lyrics <song name>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Searching lyrics...' }, { quoted: msg });
-
-    try {
-        const q = args.join(' ');
-        const r = await safeJson(`https://api.lyrics.ovh/suggest/${encodeURIComponent(q)}`);
-        const f = r?.data?.[0];
-        if (!f) throw new Error('හම්බුනේ නෑ!');
-
-        const ly = await safeJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(f.artist.name)}/${encodeURIComponent(f.title)}`);
-        if (!ly?.lyrics) throw new Error('Lyrics හම්බුනේ නෑ!');
-
-        await sock.sendMessage(from, {
-            text: `🎤 *${f.title}*\n🎙️ ${f.artist.name}\n\n${ly.lyrics.slice(0, 3000)}\n\n> ${BOT_NAME}`,
-            edit: s.key
-        });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
-    }
-}, { public: true });
-
-// =======================================================
-// 13. 🌐 TRANSLATE
-// =======================================================
-register('translate', ['tr'], async (ctx) => {
-    const { sock, from, msg, args } = ctx;
-    if (!args[0]) return await sock.sendMessage(from, { text: '🌐 Usage: .tr si Hello world' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Translating...' }, { quoted: msg });
-
-    try {
-        let to = 'en', text = args.join(' ');
-        if (args[0].length <= 3) { to = args[0]; text = args.slice(1).join(' '); }
-        if (!text) throw new Error('Text එකක් දෙන්න!');
-
-        const r = await safeJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`);
-        if (!r?.[0]) throw new Error('Translate කරන්න බෑ!');
-        const out = r[0].map(x => x[0]).join('');
-        await sock.sendMessage(from, { text: `🌐 *Translation (${to})*\n\n${out}\n\n> ${BOT_NAME}`, edit: s.key });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
-    }
-}, { public: true });
-
-// =======================================================
-// 14. 📚 WIKIPEDIA
-// =======================================================
-register('wiki', ['wikipedia'], async (ctx) => {
-    const { sock, from, msg, args } = ctx;
-    if (!args[0]) return await sock.sendMessage(from, { text: '📚 Usage: .wiki <topic>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Searching...' }, { quoted: msg });
-
-    try {
-        const q = args.join(' ');
-        const r = await safeJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(q)}`);
-        if (!r?.extract) throw new Error('හම්බුනේ නෑ!');
-
-        let text = `📚 *${r.title}*\n\n${r.extract.slice(0, 1500)}\n\n`;
-        if (r.content_urls?.desktop?.page) text += `🔗 ${r.content_urls.desktop.page}\n`;
-        text += `\n> ${BOT_NAME}`;
-
-        if (r.thumbnail?.source) {
-            await sock.sendMessage(from, { image: { url: r.thumbnail.source }, caption: text }, { quoted: msg });
-        } else {
-            await sock.sendMessage(from, { text, edit: s.key });
-        }
-        await sock.sendMessage(from, { delete: s.key }).catch(() => {});
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
-    }
-}, { public: true });
-
-// =======================================================
-// 15. 👑 OWNER
-// =======================================================
-register('owner', ['creator', 'dev'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    try {
-        const vcard = 'BEGIN:VCARD\nVERSION:3.0\n' +
-            `FN:${BOT_NAME} Owner\n` +
-            `TEL;type=CELL;type=VOICE;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\n` +
-            'END:VCARD';
-        await sock.sendMessage(from, {
-            contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] }
-        }, { quoted: msg });
-    } catch {}
-
-    await sock.sendMessage(from, {
-        text: `👑 *Owner*\n\n📱 +${OWNER_NUMBER}\n🤖 ${BOT_NAME}\n\n> ${BOT_NAME}`
-    }, { quoted: msg });
-}, { public: true });
-
-// =======================================================
-// 16. 📢 BROADCAST (owner)
-// =======================================================
-register('broad', ['broadcast', 'bc'], async (ctx) => {
-    const { sock, from, msg, args } = ctx;
-    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
-    if (!args[0]) return await sock.sendMessage(from, { text: '📢 Usage: .broad <message>' }, { quoted: msg });
-
-    const s = await sock.sendMessage(from, { text: '📢 Broadcasting...' }, { quoted: msg });
-    try {
-        const groups = await sock.groupFetchAllParticipating();
-        const ids = Object.keys(groups);
-        if (!ids.length) throw new Error('Groups නෑ!');
-
-        let sent = 0, fail = 0;
-        for (const id of ids) {
-            try {
-                await sock.sendMessage(id, {
-                    text: `📢 *BROADCAST*\n\n${args.join(' ')}\n\n> ${BOT_NAME}`
-                });
-                sent++;
-                await new Promise(r => setTimeout(r, 1500));
-            } catch { fail++; }
-        }
-        await sock.sendMessage(from, {
-            text: `✅ Sent: ${sent}\n❌ Failed: ${fail}\n📊 Total: ${ids.length}`,
-            edit: s.key
-        });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
-    }
-}, { public: false });
-
-// =======================================================
-// 17. 💬 CHANNEL REACT
-// =======================================================
-register('chreact', ['creact'], async (ctx) => {
-    const { sock, from, msg, args } = ctx;
-    if (!args[0]) return await sock.sendMessage(from, {
-        text: '💬 Usage: .chreact <emoji> <channel_msg_url>\nOr reply to channel msg with .chreact <emoji>'
-    }, { quoted: msg });
-
-    try {
-        let emoji = args[0], serverId, messageId;
-
-        if (args[1]) {
-            const m = args[1].match(/channel\/([^/]+)\/(\d+)/);
-            if (m) { serverId = m[1]; messageId = m[2]; }
-        }
-        if (!messageId) {
-            const q = msg.message?.extendedTextMessage?.contextInfo;
-            if (q?.stanzaId && q?.remoteJid?.includes('@newsletter')) {
-                serverId = q.remoteJid.split('@')[0];
-                messageId = q.stanzaId;
-            }
-        }
-        if (!serverId || !messageId) throw new Error('Channel URL එකක් දෙන්න!');
-        if (emoji.length > 10) emoji = '❤️';
-
-        await sock.sendMessage(`${serverId}@newsletter`, {
-            react: {
-                text: emoji,
-                key: { remoteJid: `${serverId}@newsletter`, id: messageId, fromMe: false }
-            }
-        });
-        await sock.sendMessage(from, { text: `✅ Reacted! ${emoji}` }, { quoted: msg });
-    } catch (e) {
-        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
-    }
-}, { public: true });
-
-// =======================================================
-// 18. 🔄 UPDATE + RESTART + GC (owner)
+// 10. 👑 OWNER & SYSTEM COMMANDS (.update etc.)
 // =======================================================
 register('update', ['up'], async (ctx) => {
     const { sock, from, msg } = ctx;
-    const s = await sock.sendMessage(from, { text: '🔄 Checking...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Checking updates...' }, { quoted: msg });
     exec('git pull', async (err, stdout, stderr) => {
         if (err) return await sock.sendMessage(from, { text: `❌ ${stderr || err.message}`, edit: s.key });
         if (stdout.includes('Already up to date')) return await sock.sendMessage(from, { text: '✅ Already up to date!', edit: s.key });
-        await sock.sendMessage(from, { text: `✅ Updated!\n\n${stdout}`, edit: s.key });
+        await sock.sendMessage(from, { text: `✅ Updated Successfully!\n\n${stdout}`, edit: s.key });
     });
 }, { public: false });
 
@@ -572,80 +371,26 @@ register('restart', ['reboot', 'rs'], async (ctx) => {
     setTimeout(() => process.exit(0), 5000);
 }, { public: false });
 
-register('gc', ['ram', 'clearcache'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
-
-    const before = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-    if (global.gc) global.gc();
-    const after = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-
-    await sock.sendMessage(from, {
-        text: `🧹 *RAM Cleaned*\n\nBefore: ${before} MB\nAfter: ${after} MB\nSaved: ${(before - after).toFixed(2)} MB\n\n> ${BOT_NAME}`
-    }, { quoted: msg });
-}, { public: false });
-
 // =======================================================
-// 19. ⚙️ SETTINGS + PING
-// =======================================================
-register('settings', ['config'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    const up = process.uptime();
-    const h = Math.floor(up / 3600);
-    const m = Math.floor((up % 3600) / 60);
-    const s = Math.floor(up % 60);
-    const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-
-    await sock.sendMessage(from, {
-        text: `⚙️ *Settings*\n\n🤖 ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n\n` +
-              `⏱️ Uptime: ${h}h ${m}m ${s}s\n` +
-              `💾 RAM: ${mem} MB\n` +
-              `📦 Node: ${process.version}\n` +
-              `⚡ PID: ${process.pid}\n\n> ${BOT_NAME}`
-    }, { quoted: msg });
-}, { public: true });
-
-register('ping', ['speed'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    const t = Date.now();
-    const s = await sock.sendMessage(from, { text: '🏓 Pinging...' }, { quoted: msg });
-    await sock.sendMessage(from, { text: `⚡ Pong! ${Date.now() - t}ms\n\n> ${BOT_NAME}`, edit: s.key });
-}, { public: true });
-
-// =======================================================
-// 20. 📋 MENU
+// 11. 📋 MENU
 // =======================================================
 register('menu', ['help', 'commands'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const text = `🔥 *${BOT_NAME} — Menu*\n\n` +
         `*📥 Downloads*\n` +
-        `.ytmp3 / .song — YouTube Audio\n` +
-        `.ytmp4 / .video — YouTube Video\n` +
-        `.fb — Facebook\n` +
-        `.tt — TikTok (no watermark)\n` +
-        `.ig — Instagram\n\n` +
-        `*🤖 AI & Fun*\n` +
-        `.ai / .gpt — AI Chat\n` +
-        `.imagine — AI Image\n` +
-        `.meme — Random meme\n` +
-        `.joke — Random joke\n` +
-        `.quote — Random quote\n` +
-        `.lyrics — Song lyrics\n\n` +
-        `*🛠️ Tools*\n` +
-        `.weather — Weather\n` +
-        `.translate / .tr — Translate\n` +
-        `.wiki — Wikipedia\n\n` +
-        `*👑 Owner*\n` +
-        `.owner — Owner contact\n` +
-        `.broad — Broadcast\n` +
-        `.chreact — Channel react\n` +
-        `.restart — Restart bot\n` +
-        `.update — Git pull\n` +
-        `.gc — Clear RAM\n\n` +
-        `*ℹ️ Info*\n` +
-        `.settings — Bot info\n` +
-        `.ping — Speed test\n` +
-        `.menu — This menu\n\n` +
+        `.ytmp3 — YouTube Audio\n` +
+        `.ytmp4 — YouTube Video\n` +
+        `.fb — Facebook Downloader\n` +
+        `.tt — TikTok Downloader\n` +
+        `.ig — Instagram Downloader\n\n` +
+        `*🤖 AI & Tools*\n` +
+        `.ai — AI Chat\n` +
+        `.imagine — AI Image Gen\n` +
+        `.weather — Weather Info\n` +
+        `.meme — Random Meme\n\n` +
+        `*👑 Owner Commands*\n` +
+        `.update — Git pull (Latest code)\n` +
+        `.restart — Restart Bot\n\n` +
         `> POWERED BY ${BOT_NAME}`;
     await sock.sendMessage(from, { text }, { quoted: msg });
 }, { public: true });
