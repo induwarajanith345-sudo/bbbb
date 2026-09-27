@@ -1,5 +1,5 @@
 // =======================================================
-// 🔥 HACKER PRO — CLEAN INDEX (Auto-Fix + Nano RAM)
+// 🔥 HACKER PRO — FIXED CLEAN INDEX (Auto-Fix + Nano RAM)
 // Node.js 18+ | Zero Install | Zero Storage
 // =======================================================
 
@@ -29,20 +29,6 @@ async function safeJson(url) {
     } catch { return null; }
 }
 
-async function safeText(url) {
-    try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 25000);
-        const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            signal: ctrl.signal
-        });
-        clearTimeout(t);
-        if (!res.ok) return null;
-        return await res.text();
-    } catch { return null; }
-}
-
 // ============ 👑 OWNER CHECK ============
 function isOwner(ctx) {
     if (ctx.msg?.key?.fromMe) return true;
@@ -67,6 +53,22 @@ function pickUrl(o) {
         if (x && typeof x === 'object' && typeof x.url === 'string') return x.url;
     }
     return null;
+}
+
+// ✅ yt-dlp ONLY (for FB/IG/TT/etc — YT APIs ට යන්නෙ නෑ)
+function ytdlpOnly(url, mode = 'video') {
+    return new Promise((resolve) => {
+        const fmt = mode === 'audio'
+            ? 'bestaudio[ext=m4a]/bestaudio/best'
+            : 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b';
+        exec(`yt-dlp -g -f "${fmt}" --no-playlist --no-warnings "${url}"`,
+            { timeout: 90000, maxBuffer: 1024 * 1024 * 10 },
+            (err, stdout) => {
+                if (err || !stdout) return resolve(null);
+                const l = stdout.split('\n').map(s => s.trim()).find(s => s.startsWith('http'));
+                resolve(l || null);
+            });
+    });
 }
 
 async function ytSearch(q) {
@@ -103,18 +105,7 @@ async function ytDownload(url, mode) {
         const u = pickUrl(r);
         if (u) return u;
     }
-    return await new Promise((resolve) => {
-        const fmt = mode === 'audio'
-            ? 'bestaudio[ext=m4a]/bestaudio/best'
-            : 'bv*[ext=mp4]+ba[ext=m4a]/b';
-        exec(`yt-dlp -g -f "${fmt}" --no-playlist --no-warnings "${url}"`,
-            { timeout: 90000, maxBuffer: 1024 * 1024 * 10 },
-            (err, stdout) => {
-                if (err || !stdout) return resolve(null);
-                const l = stdout.split('\n').map(s => s.trim()).find(s => s.startsWith('http'));
-                resolve(l || null);
-            });
-    });
+    return await ytdlpOnly(url, mode);
 }
 
 // =======================================================
@@ -178,7 +169,7 @@ register('ytmp4', ['ytv', 'video', 'mp4'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 3. 📘 FACEBOOK DOWNLOADER
+// 3. 📘 FACEBOOK (✅ FIXED — direct yt-dlp)
 // =======================================================
 register('fb', ['fbdl', 'facebook'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
@@ -189,17 +180,18 @@ register('fb', ['fbdl', 'facebook'], async (ctx) => {
         const url = args[0];
         if (!url.includes('facebook.com') && !url.includes('fb.watch')) throw new Error('Facebook URL එකක් දෙන්න!');
 
-        const apis = [
+        // API first
+        let dl = null;
+        for (const a of [
             `https://api.nyxs.pw/dl/facebook?url=${encodeURIComponent(url)}`,
             `https://api.zenkey.my.id/download/facebook?url=${encodeURIComponent(url)}`
-        ];
-        let dl = null;
-        for (const a of apis) {
+        ]) {
             const r = await safeJson(a);
             dl = pickUrl(r) || r?.download_url || r?.video_hd || r?.hd;
             if (dl) break;
         }
-        if (!dl) dl = await ytDownload(url, 'video');
+        // ✅ yt-dlp direct (YT APIs නෑ)
+        if (!dl) dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
         await sock.sendMessage(from, {
@@ -213,7 +205,7 @@ register('fb', ['fbdl', 'facebook'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 4. 🎵 TIKTOK DOWNLOADER (no watermark)
+// 4. 🎵 TIKTOK (no watermark)
 // =======================================================
 register('tt', ['ttdl', 'tiktok'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
@@ -226,7 +218,8 @@ register('tt', ['ttdl', 'tiktok'], async (ctx) => {
 
         const r = await safeJson(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`);
         let dl = r?.data?.play || r?.data?.hdplay || r?.data?.wmplay;
-        if (!dl) dl = await ytDownload(url, 'video');
+        // ✅ yt-dlp direct
+        if (!dl) dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
         await sock.sendMessage(from, {
@@ -240,7 +233,7 @@ register('tt', ['ttdl', 'tiktok'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 5. 📸 INSTAGRAM DOWNLOADER
+// 5. 📸 INSTAGRAM (✅ FIXED — direct yt-dlp)
 // =======================================================
 register('ig', ['igdl', 'instagram'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
@@ -250,7 +243,8 @@ register('ig', ['igdl', 'instagram'], async (ctx) => {
     try {
         const url = args[0];
         if (!url.includes('instagram.com')) throw new Error('Instagram URL එකක් දෙන්න!');
-        const dl = await ytDownload(url, 'video');
+        // ✅ yt-dlp direct (YT APIs නෑ)
+        const dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
         await sock.sendMessage(from, {
@@ -352,10 +346,262 @@ register('meme', ['memes'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 10. 👑 OWNER & SYSTEM COMMANDS (.update etc.)
+// 10. 😄 JOKE
+// =======================================================
+register('joke', ['jokes'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    try {
+        const r = await safeJson('https://official-joke-api.appspot.com/random_joke');
+        if (!r?.setup) throw new Error('හම්බුනේ නෑ!');
+        await sock.sendMessage(from, {
+            text: `😄 *Joke*\n\n${r.setup}\n\n||${r.punchline}||\n\n> ${BOT_NAME}`
+        }, { quoted: msg });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
+    }
+}, { public: true });
+
+// =======================================================
+// 11. 💬 QUOTE
+// =======================================================
+register('quote', ['quotes'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    try {
+        const r = await safeJson('https://zenquotes.io/api/random');
+        const q = r?.[0];
+        if (!q?.q) throw new Error('හම්බුනේ නෑ!');
+        await sock.sendMessage(from, {
+            text: `💬 *Quote*\n\n"${q.q}"\n\n— ${q.a}\n\n> ${BOT_NAME}`
+        }, { quoted: msg });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
+    }
+}, { public: true });
+
+// =======================================================
+// 12. 🎤 LYRICS
+// =======================================================
+register('lyrics', ['ly'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '🎤 Usage: .lyrics <song name>' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Searching lyrics...' }, { quoted: msg });
+
+    try {
+        const q = args.join(' ');
+        const r = await safeJson(`https://api.lyrics.ovh/suggest/${encodeURIComponent(q)}`);
+        const f = r?.data?.[0];
+        if (!f) throw new Error('හම්බුනේ නෑ!');
+
+        const ly = await safeJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(f.artist.name)}/${encodeURIComponent(f.title)}`);
+        if (!ly?.lyrics) throw new Error('Lyrics හම්බුනේ නෑ!');
+
+        await sock.sendMessage(from, {
+            text: `🎤 *${f.title}*\n🎙️ ${f.artist.name}\n\n${ly.lyrics.slice(0, 3000)}\n\n> ${BOT_NAME}`,
+            edit: s.key
+        });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
+    }
+}, { public: true });
+
+// =======================================================
+// 13. 🌐 TRANSLATE
+// =======================================================
+register('translate', ['tr'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '🌐 Usage: .tr si Hello world' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Translating...' }, { quoted: msg });
+
+    try {
+        let to = 'en', text = args.join(' ');
+        if (args[0].length <= 3) { to = args[0]; text = args.slice(1).join(' '); }
+        if (!text) throw new Error('Text එකක් දෙන්න!');
+
+        const r = await safeJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`);
+        if (!r?.[0]) throw new Error('Translate කරන්න බෑ!');
+        const out = r[0].map(x => x[0]).join('');
+        await sock.sendMessage(from, { text: `🌐 *Translation (${to})*\n\n${out}\n\n> ${BOT_NAME}`, edit: s.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
+    }
+}, { public: true });
+
+// =======================================================
+// 14. 📚 WIKIPEDIA
+// =======================================================
+register('wiki', ['wikipedia'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '📚 Usage: .wiki <topic>' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Searching...' }, { quoted: msg });
+
+    try {
+        const q = args.join(' ');
+        const r = await safeJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(q)}`);
+        if (!r?.extract) throw new Error('හම්බුනේ නෑ!');
+
+        let text = `📚 *${r.title}*\n\n${r.extract.slice(0, 1500)}\n\n`;
+        if (r.content_urls?.desktop?.page) text += `🔗 ${r.content_urls.desktop.page}\n`;
+        text += `\n> ${BOT_NAME}`;
+
+        if (r.thumbnail?.source) {
+            await sock.sendMessage(from, { image: { url: r.thumbnail.source }, caption: text }, { quoted: msg });
+        } else {
+            await sock.sendMessage(from, { text, edit: s.key });
+        }
+        await sock.sendMessage(from, { delete: s.key }).catch(() => {});
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
+    }
+}, { public: true });
+
+// =======================================================
+// 15. 👑 OWNER
+// =======================================================
+register('owner', ['creator', 'dev'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    try {
+        const vcard = 'BEGIN:VCARD\nVERSION:3.0\n' +
+            `FN:${BOT_NAME} Owner\n` +
+            `TEL;type=CELL;type=VOICE;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\n` +
+            'END:VCARD';
+        await sock.sendMessage(from, {
+            contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] }
+        }, { quoted: msg });
+    } catch {}
+
+    await sock.sendMessage(from, {
+        text: `👑 *Owner*\n\n📱 +${OWNER_NUMBER}\n🤖 ${BOT_NAME}\n\n> ${BOT_NAME}`
+    }, { quoted: msg });
+}, { public: true });
+
+// =======================================================
+// 16. 📢 BROADCAST (owner)
+// =======================================================
+register('broad', ['broadcast', 'bc'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
+    if (!args[0]) return await sock.sendMessage(from, { text: '📢 Usage: .broad <message>' }, { quoted: msg });
+
+    const s = await sock.sendMessage(from, { text: '📢 Broadcasting...' }, { quoted: msg });
+    try {
+        const groups = await sock.groupFetchAllParticipating();
+        const ids = Object.keys(groups);
+        if (!ids.length) throw new Error('Groups නෑ!');
+
+        let sent = 0, fail = 0;
+        for (const id of ids) {
+            try {
+                await sock.sendMessage(id, {
+                    text: `📢 *BROADCAST*\n\n${args.join(' ')}\n\n> ${BOT_NAME}`
+                });
+                sent++;
+                await new Promise(r => setTimeout(r, 1500)); // Rate limit
+            } catch { fail++; }
+        }
+        await sock.sendMessage(from, {
+            text: `✅ Sent: ${sent}\n❌ Failed: ${fail}\n📊 Total: ${ids.length}`,
+            edit: s.key
+        });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key });
+    }
+}, { public: false });
+
+// =======================================================
+// 17. 💬 CHANNEL REACT
+// =======================================================
+register('chreact', ['creact'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, {
+        text: '💬 Usage: .chreact <emoji> <channel_msg_url>\nOr reply to channel msg with .chreact <emoji>'
+    }, { quoted: msg });
+
+    try {
+        let emoji = args[0], serverId, messageId;
+
+        if (args[1]) {
+            const m = args[1].match(/channel\/([^/]+)\/(\d+)/);
+            if (m) { serverId = m[1]; messageId = m[2]; }
+        }
+        if (!messageId) {
+            const q = msg.message?.extendedTextMessage?.contextInfo;
+            if (q?.stanzaId && q?.remoteJid?.includes('@newsletter')) {
+                serverId = q.remoteJid.split('@')[0];
+                messageId = q.stanzaId;
+            }
+        }
+        if (!serverId || !messageId) throw new Error('Channel URL එකක් දෙන්න!');
+        if (emoji.length > 10) emoji = '❤️';
+
+        await sock.sendMessage(`${serverId}@newsletter`, {
+            react: {
+                text: emoji,
+                key: { remoteJid: `${serverId}@newsletter`, id: messageId, fromMe: false }
+            }
+        });
+        await sock.sendMessage(from, { text: `✅ Reacted! ${emoji}` }, { quoted: msg });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
+    }
+}, { public: true });
+
+// =======================================================
+// 18. ⚙️ SETTINGS
+// =======================================================
+register('settings', ['config'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    const up = process.uptime();
+    const h = Math.floor(up / 3600);
+    const m = Math.floor((up % 3600) / 60);
+    const s = Math.floor(up % 60);
+    const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+
+    await sock.sendMessage(from, {
+        text: `⚙️ *Settings*\n\n🤖 ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n\n` +
+              `⏱️ Uptime: ${h}h ${m}m ${s}s\n` +
+              `💾 RAM: ${mem} MB\n` +
+              `📦 Node: ${process.version}\n` +
+              `⚡ PID: ${process.pid}\n\n> ${BOT_NAME}`
+    }, { quoted: msg });
+}, { public: true });
+
+// =======================================================
+// 19. 🏓 PING
+// =======================================================
+register('ping', ['speed'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    const t = Date.now();
+    const s = await sock.sendMessage(from, { text: '🏓 Pinging...' }, { quoted: msg });
+    await sock.sendMessage(from, { text: `⚡ Pong! ${Date.now() - t}ms\n\n> ${BOT_NAME}`, edit: s.key });
+}, { public: true });
+
+// =======================================================
+// 20. 🧹 CLEAR RAM (owner)
+// =======================================================
+register('gc', ['ram', 'clearcache'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
+
+    const before = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    if (global.gc) global.gc();
+    const after = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+
+    await sock.sendMessage(from, {
+        text: `🧹 *RAM Cleaned*\n\nBefore: ${before} MB\nAfter: ${after} MB\nSaved: ${(before - after).toFixed(2)} MB\n\n> ${BOT_NAME}`
+    }, { quoted: msg });
+}, { public: false });
+
+// =======================================================
+// 21. 🔄 UPDATE (✅ FIXED — isOwner check)
 // =======================================================
 register('update', ['up'], async (ctx) => {
     const { sock, from, msg } = ctx;
+
+    // ✅ Fallback owner check (framework owner detect fail උනත් වැඩ කරනවා)
+    if (!isOwner(ctx)) {
+        return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
+    }
+
     const s = await sock.sendMessage(from, { text: '🔄 Checking updates...' }, { quoted: msg });
     exec('git pull', async (err, stdout, stderr) => {
         if (err) return await sock.sendMessage(from, { text: `❌ ${stderr || err.message}`, edit: s.key });
@@ -364,6 +610,9 @@ register('update', ['up'], async (ctx) => {
     });
 }, { public: false });
 
+// =======================================================
+// 22. 🔄 RESTART (owner)
+// =======================================================
 register('restart', ['reboot', 'rs'], async (ctx) => {
     const { sock, from, msg } = ctx;
     if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
@@ -372,25 +621,38 @@ register('restart', ['reboot', 'rs'], async (ctx) => {
 }, { public: false });
 
 // =======================================================
-// 11. 📋 MENU
+// 23. 📋 MENU
 // =======================================================
 register('menu', ['help', 'commands'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const text = `🔥 *${BOT_NAME} — Menu*\n\n` +
         `*📥 Downloads*\n` +
-        `.ytmp3 — YouTube Audio\n` +
-        `.ytmp4 — YouTube Video\n` +
-        `.fb — Facebook Downloader\n` +
-        `.tt — TikTok Downloader\n` +
-        `.ig — Instagram Downloader\n\n` +
+        `.ytmp3 / .song — YouTube Audio\n` +
+        `.ytmp4 / .video — YouTube Video\n` +
+        `.fb — Facebook\n` +
+        `.tt — TikTok (no watermark)\n` +
+        `.ig — Instagram\n\n` +
         `*🤖 AI & Tools*\n` +
-        `.ai — AI Chat\n` +
+        `.ai / .gpt — AI Chat\n` +
         `.imagine — AI Image Gen\n` +
         `.weather — Weather Info\n` +
-        `.meme — Random Meme\n\n` +
-        `*👑 Owner Commands*\n` +
-        `.update — Git pull (Latest code)\n` +
-        `.restart — Restart Bot\n\n` +
+        `.meme — Random Meme\n` +
+        `.joke — Random Joke\n` +
+        `.quote — Random Quote\n` +
+        `.lyrics — Song Lyrics\n` +
+        `.translate / .tr — Translate\n` +
+        `.wiki — Wikipedia\n\n` +
+        `*👑 Owner*\n` +
+        `.owner — Owner contact\n` +
+        `.broad — Broadcast (groups)\n` +
+        `.chreact — Channel react\n` +
+        `.update — Git pull\n` +
+        `.restart — Restart Bot\n` +
+        `.gc — Clear RAM\n\n` +
+        `*ℹ️ Info*\n` +
+        `.settings — Bot info\n` +
+        `.ping — Speed test\n` +
+        `.menu — This menu\n\n` +
         `> POWERED BY ${BOT_NAME}`;
     await sock.sendMessage(from, { text }, { quoted: msg });
 }, { public: true });
