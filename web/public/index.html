@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HACKER PRO ULTRA</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        
+        :root {
+            --primary: #00d2ff;
+            --secondary: #3a7bd5;
+            --accent: #00ff88;
+            --danger: #ff6b6b;
+            --dark: #0a0e27;
+            --darker: #060917;
+            --card: rgba(255,255,255,0.03);
+            --border: rgba(255,255,255,0.08);
+        }
+        
+        body {
+            background: var(--darker);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        /* Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-animation .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.4;
+            animation: float 20s ease-in-out infinite;
+        }
+        
+        .orb-1 {
+            width: 400px; height: 400px;
+            background: var(--primary);
+            top: -100px; left: -100px;
+            animation-delay: 0s;
+        }
+        
+        .orb-2 {
+            width: 500px; height: 500px;
+            background: var(--secondary);
+            bottom: -150px; right: -150px;
+            animation-delay: -5s;
+        }
+        
+        .orb-3 {
+            width: 300px; height: 300px;
+            background: var(--accent);
+            top: 50%; left: 50%;
+            animation-delay: -10s;
+            opacity: 0.2;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(50px, -50px) scale(1.1); }
+            50% { transform: translate(-30px, 30px) scale(0.9); }
+            75% { transform: translate(-50px, -30px) scale(1.05); }
+        }
+        
+        /* Grid Pattern */
+        .grid-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                linear-gradient(rgba(0,210,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,210,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            z-index: 1;
+            pointer-events: none;
+        }
+        
+        /* Main Container */
+        .container {
+            background: rgba(10, 14, 39, 0.7);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 520px;
+            width: 100%;
+            box-shadow: 
+                0 20px 60px rgba(0,0,0,0.7),
+                0 0 0 1px rgba(0,210,255,0.05),
+                inset 0 1px 0 rgba(255,255,255,0.05);
+            position: relative;
+            z-index: 2;
+            animation: containerIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        @keyframes containerIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(0,210,255,0.4);
+            animation: logoPulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes logoPulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 8px 24px rgba(0,210,255,0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 8px 32px rgba(0,210,255,0.6); }
+        }
+        
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent));
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradientShift 3s linear infinite;
+            letter-spacing: -0.5px;
+        }
+        
+        @keyframes gradientShift {
+            0% { background-position: 0% center; }
+            100% { background-position: 200% center; }
+        }
+        
+        .subtitle {
+            color: #6b7280;
+            font-size: 13px;
+            margin-top: 4px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+        
+        .status-item .label {
+            color: #6b7280;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-item .value {
+            color: #fff;
+            font-weight: 700;
+            font-size: 15px;
+        }
+        
+        .status-item .value.online {
+            color: var(--accent);
+            text-shadow: 0 0 10px rgba(0,255,136,0.5);
+        }
+        
+        .status-item .value.offline {
+            color: var(--danger);
+        }
+        
+        .status-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+        
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            position: relative;
+            animation: pulseDot 2s ease-in-out infinite;
+        }
+        
+        .pulse-dot::after {
+            content: '';
+            position: absolute;
+            top: -4px; left: -4px;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            opacity: 0.5;
+            animation: pulseRing 2s ease-out infinite;
+        }
+        
+        @keyframes pulseDot {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+        }
+        
+        @keyframes pulseRing {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        
+        /* Method Toggle */
+        .method-toggle {
+            display: flex;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 4px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .method-toggle .slider {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: calc(50% - 4px);
+            height: calc(100% - 8px);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 10px;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 12px rgba(0,210,255,0.4);
+        }
+        
+        .method-toggle.qr .slider {
+            transform: translateX(0);
+        }
+        
+        .method-toggle.pair .slider {
+            transform: translateX(100%);
+        }
+        
+        .method-btn {
+            flex: 1;
+            padding: 12px;
+            background: transparent;
+            border: none;
+            color: #6b7280;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            transition: color 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        
+        .method-btn.active {
+            color: #fff;
+        }
+        
+        /* Input Section */
+        .input-section {
+            animation: slideIn 0.4s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .input-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #9ca3af;
+            font-weight: 500;
+        }
+        
+        .input-wrapper {
+            position: relative;
+        }
+        
+        .input-wrapper input {
+            width: 100%;
+            padding: 16px 16px 16px 48px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s;
+            font-family: monospace;
+            letter-spacing: 1px;
+        }
+        
+        .input-wrapper input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0,210,255,0.1), 0 0 20px rgba(0,210,255,0.2);
+        }
+        
+        .input-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            opacity: 0.5;
+            transition: 0.3s;
+        }
+        
+        .input-wrapper input:focus + .input-icon {
+            opacity: 1;
+        }
+        
+        /* Generate Button */
+        .generate-btn {
+            width: 100%;
+            padding: 16px;
+            margin-top: 16px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border: none;
+            border-radius: 14px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+            letter-spacing: 0.5px;
+        }
+        
+        .generate-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.6s;
+        }
+        
+        .generate-btn:hover:not(:disabled)::before {
+            left: 100%;
+        }
+        
+        .generate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(0,210,255,0.5);
+        }
+        
+        .generate-btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .generate-btn.loading {
+            background: linear-gradient(135deg, #1e293b, #334155);
+        }
+        
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Code Display */
+        .code-box {
+            margin-top: 24px;
+            padding: 24px;
+            background: linear-gradient(135deg, rgba(0,210,255,0.08), rgba(58,123,213,0.08));
+            border: 2px solid rgba(0,210,255,0.3);
+            border-radius: 16px;
+            text-align: center;
+            display: none;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .code-box::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: conic-gradient(from 0deg, transparent, var(--primary), transparent 30%);
+            animation: rotate 4s linear infinite;
+            opacity: 0.1;
+        }
+        
+        @keyframes rotate {
+            to { transform: rotate(360deg); }
+        }
+        
+        .code-box.show {
+            display: block;
+            animation: codeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        @keyframes codeIn {
+            from { opacity: 0; transform: scale(0.9) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        
+        .code-label {
+            font-size: 12px;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 12px;
+        }
+        
+        .code {
+            font-size: 44px;
+            font-weight: 900;
+            letter-spacing: 10px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-family: 'Courier New', monospace;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 0 30px rgba(0,210,255,0.5);
+            padding-left: 10px;
+        }
+        
+        .timer-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            margin-top: 16px;
+            overflow: hidden;
+        }
+        
+        .timer-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--primary));
+            border-radius: 2px;
+            transition: width 1s linear;
+            width: 100%;
+        }
+        
+        .timer-text {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 8px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .timer-text strong {
+            color: var(--danger);
+        }
+        
+        /* Copy Button */
+        .copy-btn {
+            margin-top: 16px;
+            padding: 10px 20px;
+            background: rgba(0,210,255,0.1);
+            border: 1px solid var(--primary);
+            border-radius: 10px;
+            color: var(--primary);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .copy-btn:hover {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 8px 20px rgba(0,210,255,0.4);
+        }
+        
+        /* Error */
+        .error {
+            margin-top: 20px;
+            padding: 14px 16px;
+            background: rgba(255,107,107,0.1);
+            border: 1px solid rgba(255,107,107,0.3);
+            border-radius: 12px;
+            color: var(--danger);
+            font-size: 14px;
+            display: none;
+            animation: shake 0.4s;
+        }
+        
+        .error.show { display: block; }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        /* Steps */
+        .steps {
+            margin-top: 24px;
+            padding: 20px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+        
+        .steps-title {
+            font-size: 12px;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+        
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 8px 0;
+            font-size: 13px;
+            color: #9ca3af;
+            line-height: 1.5;
+        }
+        
+        .step-num {
+            width: 22px;
+            height: 22px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: #fff;
+            flex-shrink: 0;
+        }
+        
+        .step strong {
+            color: #fff;
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: #4b5563;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .footer span {
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        /* QR Code Display */
+        .qr-box {
+            margin-top: 24px;
+            padding: 24px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            text-align: center;
+            display: none;
+        }
+        
+        .qr-box.show {
+            display: block;
+            animation: codeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .qr-container {
+            background: #fff;
+            padding: 16px;
+            border-radius: 12px;
+            display: inline-block;
+            margin: 12px 0;
+            animation: qrIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        @keyframes qrIn {
+            from { opacity: 0; transform: scale(0.8) rotate(-5deg); }
+            to { opacity: 1; transform: scale(1) rotate(0); }
+        }
+        
+        .qr-container img, .qr-container canvas {
+            display: block;
+            width: 220px;
+            height: 220px;
+        }
+        
+        .qr-hint {
+            font-size: 13px;
+            color: #9ca3af;
+            margin-top: 8px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 480px) {
+            .container { padding: 28px 20px; border-radius: 20px; }
+            h1 { font-size: 22px; }
+            .code { font-size: 32px; letter-spacing: 6px; padding-left: 6px; }
+            .status-bar { flex-wrap: wrap; gap: 10px; }
+        }
+        
+        /* Scan line effect */
+        .scan-line {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            animation: scanLine 4s linear infinite;
+            z-index: 3;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        
+        @keyframes scanLine {
+            0% { top: 0; opacity: 0; }
+            10% { opacity: 0.5; }
+            90% { opacity: 0.5; }
+            100% { top: 100%; opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Animation -->
+    <div class="bg-animation">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    <div class="grid-overlay"></div>
+    <div class="scan-line"></div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-container">
+                <div class="logo-icon">⚡</div>
+                <h1>HACKER PRO ULTRA</h1>
+            </div>
+            <p class="subtitle">WhatsApp Pairing System</p>
+        </div>
+
+        <!-- Live Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="pulse-dot"></div>
+                <div>
+                    <div class="label">Status</div>
+                    <div class="value online" id="botStatus">ONLINE</div>
+                </div>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <div>
+                    <div class="label">Active Bots</div>
+                    <div class="value" id="activeBots">0</div>
+                </div>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <div>
+                    <div class="label">Total Users</div>
+                    <div class="value" id="totalUsers">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Method Toggle (QR / Pair) -->
+        <div class="method-toggle pair" id="methodToggle">
+            <div class="slider"></div>
+            <button class="method-btn" data-method="qr" onclick="switchMethod('qr')">
+                📱 QR Code
+            </button>
+            <button class="method-btn active" data-method="pair" onclick="switchMethod('pair')">
+                🔐 Pair Code
+            </button>
+        </div>
+
+        <!-- Pair Code Section -->
+        <div class="input-section" id="pairSection">
+            <div class="input-label">
+                <span>📱</span> Phone Number (with country code)
+            </div>
+            <div class="input-wrapper">
+                <span class="input-icon">📞</span>
+                <input type="tel" id="phone" placeholder="94760601455" maxlength="15">
+            </div>
+            
+            <button class="generate-btn" id="generateBtn" onclick="generateCode()">
+                Generate Pair Code
+            </button>
+            
+            <!-- Pair Code Display -->
+            <div class="code-box" id="codeBox">
+                <div class="code-label">Your Pairing Code</div>
+                <div class="code" id="code">----</div>
+                <div class="timer-bar">
+                    <div class="timer-fill" id="timerFill"></div>
+                </div>
+                <div class="timer-text">
+                    Expires in <strong id="timer">60</strong>s
+                </div>
+                <button class="copy-btn" onclick="copyCode()">📋 Copy Code</button>
+            </div>
+        </div>
+
+        <!-- QR Code Section -->
+        <div class="input-section" id="qrSection" style="display: none;">
+            <div class="qr-box" id="qrBox" style="display: block;">
+                <div class="code-label">Scan QR Code</div>
+                <div class="qr-container" id="qrContainer">
+                    <canvas id="qrCanvas"></canvas>
+                </div>
+                <div class="qr-hint">
+                    WhatsApp → Linked Devices → Link a Device
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Display -->
+        <div class="error" id="error"></div>
+
+        <!-- Steps -->
+        <div class="steps">
+            <div class="steps-title">📌 How to Link</div>
+            <div class="step">
+                <div class="step-num">1</div>
+                <div>WhatsApp app එක open කරන්න</div>
+            </div>
+            <div class="step">
+                <div class="step-num">2</div>
+                <div><strong>Settings</strong> → <strong>Linked Devices</strong></div>
+            </div>
+            <div class="step">
+                <div class="step-num">3</div>
+                <div><strong>Link a Device</strong> tap කරන්න</div>
+            </div>
+            <div class="step">
+                <div class="step-num">4</div>
+                <div><strong>Link with phone number</strong> (Pair Code එකට)</div>
+            </div>
+            <div class="step">
+                <div class="step-num">5</div>
+                <div>Code එක type කරන්න / QR scan කරන්න</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            POWERED BY <span>HACKER PRO TEAM</span>
+        </div>
+    </div>
+
+    <script>
+        let timerInterval;
+        let currentMethod = "pair";
+        let countdownValue = 60;
+
+        // ==========================================
+        // Method Switch (QR / Pair)
+        // ==========================================
+        function switchMethod(method) {
+            currentMethod = method;
+            const toggle = document.getElementById("methodToggle");
+            const pairSection = document.getElementById("pairSection");
+            const qrSection = document.getElementById("qrSection");
+            
+            // Update buttons
+            document.querySelectorAll(".method-btn").forEach(btn => {
+                btn.classList.toggle("active", btn.dataset.method === method);
+            });
+            
+            // Update slider
+            toggle.classList.remove("qr", "pair");
+            toggle.classList.add(method);
+            
+            // Show/hide sections
+            if (method === "qr") {
+                pairSection.style.display = "none";
+                qrSection.style.display = "block";
+                generateQR();
+            } else {
+                pairSection.style.display = "block";
+                qrSection.style.display = "none";
+            }
+        }
+
+        // ==========================================
+        // QR Code Generation
+        // ==========================================
+        async function generateQR() {
+            try {
+                const res = await fetch("/api/qr");
+                const data = await res.json();
+                
+                if (data.qr) {
+                    renderQR(data.qr);
+                }
+            } catch (e) {
+                console.log("QR error:", e.message);
+            }
+        }
+
+        function renderQR(qrData) {
+            const canvas = document.getElementById("qrCanvas");
+            const ctx = canvas.getContext("2d");
+            const size = 220;
+            canvas.width = size;
+            canvas.height = size;
+            
+            // Simple QR placeholder (real QR needs library)
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = "#0a0e27";
+            ctx.font = "14px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText("QR Loading...", size/2, size/2);
+            ctx.font = "10px monospace";
+            ctx.fillText("(Server QR needed)", size/2, size/2 + 20);
+        }
+
+        // ==========================================
+        // Generate Pair Code
+        // ==========================================
+        async function generateCode() {
+            const phone = document.getElementById("phone").value.trim();
+            const btn = document.getElementById("generateBtn");
+            const codeBox = document.getElementById("codeBox");
+            const errorBox = document.getElementById("error");
+
+            codeBox.classList.remove("show");
+            errorBox.classList.remove("show");
+
+            if (!phone || phone.length < 10) {
+                errorBox.textContent = "❌ Valid phone number එකක් දෙන්න!";
+                errorBox.classList.add("show");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.classList.add("loading");
+            btn.innerHTML = '<span class="spinner"></span> Generating...';
+
+            try {
+                const res = await fetch("/api/pair", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    let attempts = 0;
+                    const maxAttempts = 30;
+
+                    const poll = setInterval(async () => {
+                        attempts++;
+                        if (attempts > maxAttempts) {
+                            clearInterval(poll);
+                            errorBox.textContent = "⏰ Timeout. Try again.";
+                            errorBox.classList.add("show");
+                            resetBtn(btn);
+                            return;
+                        }
+
+                        try {
+                            const statusRes = await fetch(`/api/pair/${data.userId}`);
+                            const statusData = await statusRes.json();
+
+                            if (statusData.status === "success") {
+                                clearInterval(poll);
+                                showCode(statusData.code);
+                                resetBtn(btn);
+                            }
+                        } catch (e) {}
+                    }, 2000);
+                } else {
+                    errorBox.textContent = "❌ " + (data.error || "Failed");
+                    errorBox.classList.add("show");
+                    resetBtn(btn);
+                }
+            } catch (e) {
+                errorBox.textContent = "❌ " + e.message;
+                errorBox.classList.add("show");
+                resetBtn(btn);
+            }
+        }
+
+        function resetBtn(btn) {
+            btn.disabled = false;
+            btn.classList.remove("loading");
+            btn.textContent = "Generate Pair Code";
+        }
+
+        function showCode(code) {
+            const codeBox = document.getElementById("codeBox");
+            document.getElementById("code").textContent = code;
+            codeBox.classList.add("show");
+
+            countdownValue = 60;
+            clearInterval(timerInterval);
+            
+            const timerEl = document.getElementById("timer");
+            const timerFill = document.getElementById("timerFill");
+            
+            timerEl.textContent = countdownValue;
+            timerFill.style.width = "100%";
+
+            timerInterval = setInterval(() => {
+                countdownValue--;
+                timerEl.textContent = countdownValue;
+                timerFill.style.width = (countdownValue / 60 * 100) + "%";
+                
+                if (countdownValue <= 0) {
+                    clearInterval(timerInterval);
+                    codeBox.classList.remove("show");
+                    document.getElementById("error").textContent = "⏰ Code expired!";
+                    document.getElementById("error").classList.add("show");
+                }
+            }, 1000);
+        }
+
+        function copyCode() {
+            const code = document.getElementById("code").textContent;
+            if (code && code !== "----") {
+                navigator.clipboard.writeText(code).then(() => {
+                    const btn = event.target;
+                    const original = btn.textContent;
+                    btn.textContent = "✅ Copied!";
+                    setTimeout(() => btn.textContent = original, 2000);
+                });
+            }
+        }
+
+        // ==========================================
+        // Status Check
+        // ==========================================
+        async function checkStatus() {
+            try {
+                const res = await fetch("/api/status");
+                const data = await res.json();
+                
+                document.getElementById("botStatus").textContent = 
+                    data.online ? "ONLINE" : "OFFLINE";
+                document.getElementById("botStatus").className = 
+                    "value " + (data.online ? "online" : "offline");
+                document.getElementById("activeBots").textContent = data.activeBots || 0;
+                document.getElementById("totalUsers").textContent = data.totalUsers || 0;
+            } catch (e) {
+                document.getElementById("botStatus").textContent = "OFFLINE";
+                document.getElementById("botStatus").className = "value offline";
+            }
+        }
+
+        // ==========================================
+        // Phone Formatting
+        // ==========================================
+        document.getElementById("phone").addEventListener("input", (e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, "");
+        });
+
+        document.getElementById("phone").addEventListener("keypress", (e) => {
+            if (e.key === "Enter") generateCode();
+        });
+
+        // ==========================================
+        // Init
+        // ==========================================
+        checkStatus();
+        setInterval(checkStatus, 10000);
+    </script>
+</body>
+</html>
