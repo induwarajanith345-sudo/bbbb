@@ -104,11 +104,10 @@ async function fetchWithBypass(url) {
 }
 
 // ==========================================
-// COMMAND SYSTEM (AUTO LOAD)
+// COMMAND SYSTEM
 // ==========================================
 const COMMANDS = {};
 
-// Helper to register commands
 function register(name, aliases, handler, options = {}) {
     const cmd = {
         name,
@@ -118,48 +117,55 @@ function register(name, aliases, handler, options = {}) {
         public: options.public !== false,
         category: options.category || 'main'
     };
-    
     COMMANDS[name] = cmd;
     cmd.aliases.forEach(a => COMMANDS[a] = cmd);
 }
 
 // ==========================================
-// REGISTER ALL COMMANDS
+// MAIN COMMANDS
 // ==========================================
-
-// Main
 register('menu', ['help'], async (ctx) => {
-    const { sock, from, msg, config } = ctx;
+    const { sock, from, msg } = ctx;
     const isBotOwner = isOwner(ctx.sender) || msg.key.fromMe;
     
     let menuText = `𝗛𝗔𝗖𝗞𝗘𝗥 𝗣𝗥𝗢 𝗨𝗟𝗧𝗥𝗔 𝗔𝗖𝗧𝗜𝗩𝗘\n` +
-                   `╭━━━〔 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 〕━━━┈⊷\n` +
+                   `╭━━━〔 𝗠𝗔𝗜𝗡 𝗠𝗘𝗡𝗨 〕━━━┈⊷\n` +
                    `┃ ⋄ .menu\n` +
                    `┃ ⋄ .ping\n` +
                    `┃ ⋄ .owner\n` +
                    `┃ ⋄ .dp\n` +
                    `┃ ⋄ .ai [question]\n` +
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
+                   `╭━━━〔 𝗠𝗢𝗩𝗜𝗘 〕━━━┈⊷\n` +
                    `┃ ⋄ .movie [name]\n` +
                    `┃ ⋄ .moviedl [url]\n` +
                    `┃ ⋄ .cinesubz [name]\n` +
                    `┃ ⋄ .animeclub2 [name]\n` +
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
+                   `╭━━━〔 𝗚𝗔𝗠𝗘𝗦 〕━━━┈⊷\n` +
                    `┃ ⋄ .fitgirl [game]\n` +
                    `┃ ⋄ .dodi [game]\n` +
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
+                   `╭━━━〔 𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗 〕━━━┈⊷\n` +
                    `┃ ⋄ .tiktok [url]\n` +
                    `┃ ⋄ .fb [url]\n` +
                    `┃ ⋄ .ig [url]\n` +
-                   `┃ ⋄ .status on/off\n`;
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
+                   `╭━━━〔 𝗧𝗢𝗢𝗟𝗦 〕━━━┈⊷\n` +
+                   `┃ ⋄ .status on/off\n` +
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷`;
 
     if (isBotOwner) {
-        menuText += `┃\n┃ *OWNER*\n` +
+        menuText += `\n\n╭━━━〔 👑 𝗢𝗪𝗡𝗘𝗥 〕━━━┈⊷\n` +
                    `┃ ⋄ .public / .private\n` +
                    `┃ ⋄ .addowner [num]\n` +
                    `┃ ⋄ .delowner [num]\n` +
                    `┃ ⋄ .broadcast [msg]\n` +
-                   `┃ ⋄ .chnlreact [jid] [emoji]\n`;
+                   `┃ ⋄ .chnlreact [jid] [emoji]\n` +
+                   `╰━━━━━━━━━━━━━━━━━━┈⊷`;
     }
     
-    menuText += `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n> POWERED BY HACKER PRO TEAM`;
+    menuText += `\n\n> POWERED BY HACKER PRO TEAM`;
 
     await sock.sendMessage(from, {
         image: { url: 'https://res.cloudinary.com/dqlh378fb/image/upload/v1790485177/zanta_media_uploads/wfkglvlowl9jcmqpl5ji.jpg' },
@@ -199,7 +205,9 @@ register('dp', ['profilepic'], async (ctx) => {
     } catch (e) {}
 }, { public: true, category: 'tools' });
 
-// Owner
+// ==========================================
+// OWNER COMMANDS
+// ==========================================
 register('public', [], async (ctx) => {
     const { sock, from, msg } = ctx;
     botData.isPublic = true;
@@ -221,7 +229,7 @@ register('addowner', ['addown'], async (ctx) => {
     if (botData.owners.includes(num)) return await sock.sendMessage(from, { text: '⚠️ Already owner' }, { quoted: msg });
     botData.owners.push(num);
     saveBotData();
-    await sock.sendMessage(from, { text: `✅ Added: +${num}` }, { quoted: msg });
+    await sock.sendMessage(from, { text: `✅ Added: +${num}\n\n👑 Owners:\n${botData.owners.map((o,i)=>`${i+1}. +${o}`).join('\n')}` }, { quoted: msg });
 }, { ownerOnly: true });
 
 register('delowner', ['delown'], async (ctx) => {
@@ -265,7 +273,9 @@ register('chnlreact', ['creact'], async (ctx) => {
     }
 }, { ownerOnly: true });
 
-// AI
+// ==========================================
+// AI COMMANDS
+// ==========================================
 register('ai', ['gpt', 'chat'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args.length) return await sock.sendMessage(from, { text: '🤖 Usage: .ai <question>' }, { quoted: msg });
@@ -284,7 +294,9 @@ register('ai', ['gpt', 'chat'], async (ctx) => {
     }
 }, { public: true, category: 'ai' });
 
-// Movies
+// ==========================================
+// MOVIE COMMANDS
+// ==========================================
 register('movie', ['film'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args.length) return await sock.sendMessage(from, { text: '🎬 Usage: .movie <name>' }, { quoted: msg });
@@ -422,7 +434,9 @@ register('animeclub2', ['aclub2', 'anime2'], async (ctx) => {
     }
 }, { public: true, category: 'anime' });
 
-// PC Games
+// ==========================================
+// GAME COMMANDS
+// ==========================================
 register('fitgirl', ['fg'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args.length) return await sock.sendMessage(from, { text: '🎮 Usage: .fitgirl <game>' }, { quoted: msg });
@@ -475,7 +489,9 @@ register('dodi', [], async (ctx) => {
     }
 }, { public: true, category: 'game' });
 
-// Downloads
+// ==========================================
+// DOWNLOAD COMMANDS
+// ==========================================
 register('tiktok', ['tt'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '📥 Usage: .tiktok <url>' }, { quoted: msg });
@@ -531,7 +547,9 @@ register('ig', ['instagram'], async (ctx) => {
     }
 }, { public: true, category: 'download' });
 
-// Status
+// ==========================================
+// TOOLS COMMANDS
+// ==========================================
 register('status', [], async (ctx) => {
     const { sock, from, msg, args, userId } = ctx;
     if (!botData.statusSettings[userId]) {
@@ -795,7 +813,7 @@ class BotSession {
 
             if (!body) return;
 
-            // Status broadcast
+            // Status
             if (from === 'status@broadcast') {
                 const settings = botData.statusSettings[this.userId];
                 if (settings?.autoSeen) await this.sock.readMessages([msg.key]).catch(() => {});
@@ -820,53 +838,31 @@ class BotSession {
 
             const args = body.slice(1).trim().split(/ +/);
             const cmdName = args.shift().toLowerCase();
-
             const command = COMMANDS[cmdName];
             
-            // Unknown command — silently ignore or show help
-            if (!command) {
-                // Option: show help
-                // return await this.sock.sendMessage(from, { text: '❌ Unknown command. Use .menu' }, { quoted: msg });
-                return; // Silent
-            }
+            if (!command) return;
 
             const isBotOwner = isOwner(sender) || msg.key.fromMe;
 
-            // Owner check
             if (command.ownerOnly && !isBotOwner) {
                 return await this.sock.sendMessage(from, { text: '👑 Owner only' }, { quoted: msg });
             }
-
-            // Public mode check
             if (!isBotOwner && !botData.isPublic) return;
             if (!isBotOwner && !command.public) return;
 
-            // React
             await this.sock.sendMessage(from, { react: { text: '⏳', key: msg.key } }).catch(() => {});
 
-            // Build context
             const ctx = {
-                sock: this.sock,
-                from,
-                msg,
-                sender,
-                isGroup,
-                args,
-                body,
-                userId: this.userId,
-                botData,
-                saveBotData,
-                isOwner: isBotOwner
+                sock: this.sock, from, msg, sender, isGroup, args, body,
+                userId: this.userId, botData, saveBotData, isOwner: isBotOwner
             };
 
-            // Execute with error handling
             try {
                 await command.handler(ctx);
                 await this.sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {});
             } catch (cmdError) {
                 console.error(`[${cmdName}] Error:`, cmdError.message);
                 await this.sock.sendMessage(from, { text: `❌ Error: ${cmdError.message}` }, { quoted: msg }).catch(() => {});
-                await this.sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {});
             }
 
         } catch (e) {
