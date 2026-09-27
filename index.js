@@ -1,6 +1,6 @@
 // =======================================================
-// 🔥 HACKER PRO — FIXED CLEAN INDEX (Auto-Fix + Nano RAM)
-// Node.js 18+ | Zero Install | Zero Storage
+// 🔥 HACKER PRO — ULTIMATE FIXED INDEX
+// Node.js 18+ | Zero Install | Zero Storage | Auto-Fix
 // =======================================================
 
 const { exec } = require('child_process');
@@ -10,7 +10,7 @@ process.on('uncaughtException', (err) => console.error('🛡️ [CAUGHT]', err?.
 process.on('unhandledRejection', (err) => console.error('🛡️ [REJECT]', err?.message || err));
 
 // ============ 👑 CONFIG ============
-let OWNER_NUMBER = '94771234567'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව)
+let OWNER_NUMBER = '94771234567'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව, 0 නැතුව)
 const BOT_NAME = 'HACKER PRO';
 
 // ============ 🛡️ SAFE FETCH (Nano RAM) ============
@@ -19,7 +19,7 @@ async function safeJson(url) {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 25000);
         const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
             signal: ctrl.signal
         });
         clearTimeout(t);
@@ -55,7 +55,7 @@ function pickUrl(o) {
     return null;
 }
 
-// ✅ yt-dlp ONLY (for FB/IG/TT/etc — YT APIs ට යන්නෙ නෑ)
+// yt-dlp ONLY (FB/IG/TT — YT APIs වලට යන්නෙ නෑ)
 function ytdlpOnly(url, mode = 'video') {
     return new Promise((resolve) => {
         const fmt = mode === 'audio'
@@ -169,18 +169,17 @@ register('ytmp4', ['ytv', 'video', 'mp4'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 3. 📘 FACEBOOK (✅ FIXED — direct yt-dlp)
+// 3. 📘 FACEBOOK DOWNLOADER
 // =======================================================
 register('fb', ['fbdl', 'facebook'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '📘 Usage: .fb <facebook URL>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading Facebook video...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading Facebook...' }, { quoted: msg });
 
     try {
         const url = args[0];
         if (!url.includes('facebook.com') && !url.includes('fb.watch')) throw new Error('Facebook URL එකක් දෙන්න!');
 
-        // API first
         let dl = null;
         for (const a of [
             `https://api.nyxs.pw/dl/facebook?url=${encodeURIComponent(url)}`,
@@ -190,7 +189,6 @@ register('fb', ['fbdl', 'facebook'], async (ctx) => {
             dl = pickUrl(r) || r?.download_url || r?.video_hd || r?.hd;
             if (dl) break;
         }
-        // ✅ yt-dlp direct (YT APIs නෑ)
         if (!dl) dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
@@ -205,7 +203,7 @@ register('fb', ['fbdl', 'facebook'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 4. 🎵 TIKTOK (no watermark)
+// 4. 🎵 TIKTOK DOWNLOADER
 // =======================================================
 register('tt', ['ttdl', 'tiktok'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
@@ -218,7 +216,6 @@ register('tt', ['ttdl', 'tiktok'], async (ctx) => {
 
         const r = await safeJson(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`);
         let dl = r?.data?.play || r?.data?.hdplay || r?.data?.wmplay;
-        // ✅ yt-dlp direct
         if (!dl) dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
@@ -233,7 +230,7 @@ register('tt', ['ttdl', 'tiktok'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 5. 📸 INSTAGRAM (✅ FIXED — direct yt-dlp)
+// 5. 📸 INSTAGRAM DOWNLOADER
 // =======================================================
 register('ig', ['igdl', 'instagram'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
@@ -243,7 +240,6 @@ register('ig', ['igdl', 'instagram'], async (ctx) => {
     try {
         const url = args[0];
         if (!url.includes('instagram.com')) throw new Error('Instagram URL එකක් දෙන්න!');
-        // ✅ yt-dlp direct (YT APIs නෑ)
         const dl = await ytdlpOnly(url, 'video');
         if (!dl) throw new Error('Download link එක ගන්න බෑ.');
 
@@ -293,7 +289,7 @@ register('ai', ['gpt', 'chat'], async (ctx) => {
 register('imagine', ['img', 'gen'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎨 Usage: .imagine <prompt>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🎨 Generating image...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🎨 Generating...' }, { quoted: msg });
 
     try {
         const prompt = args.join(' ');
@@ -495,7 +491,7 @@ register('broad', ['broadcast', 'bc'], async (ctx) => {
                     text: `📢 *BROADCAST*\n\n${args.join(' ')}\n\n> ${BOT_NAME}`
                 });
                 sent++;
-                await new Promise(r => setTimeout(r, 1500)); // Rate limit
+                await new Promise(r => setTimeout(r, 1500));
             } catch { fail++; }
         }
         await sock.sendMessage(from, {
@@ -592,22 +588,101 @@ register('gc', ['ram', 'clearcache'], async (ctx) => {
 }, { public: false });
 
 // =======================================================
-// 21. 🔄 UPDATE (✅ FIXED — isOwner check)
+// 21. 🔄 UPDATE (FIXED — Proper Error Handling)
 // =======================================================
 register('update', ['up'], async (ctx) => {
     const { sock, from, msg } = ctx;
 
-    // ✅ Fallback owner check (framework owner detect fail උනත් වැඩ කරනවා)
     if (!isOwner(ctx)) {
         return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
     }
 
     const s = await sock.sendMessage(from, { text: '🔄 Checking updates...' }, { quoted: msg });
-    exec('git pull', async (err, stdout, stderr) => {
-        if (err) return await sock.sendMessage(from, { text: `❌ ${stderr || err.message}`, edit: s.key });
-        if (stdout.includes('Already up to date')) return await sock.sendMessage(from, { text: '✅ Already up to date!', edit: s.key });
-        await sock.sendMessage(from, { text: `✅ Updated Successfully!\n\n${stdout}`, edit: s.key });
+
+    const run = (cmd, timeout = 30000) => new Promise((resolve) => {
+        exec(cmd, { timeout, cwd: process.cwd() }, (err, stdout, stderr) => {
+            resolve({
+                ok: !err,
+                stdout: (stdout || '').trim(),
+                stderr: (stderr || '').trim()
+            });
+        });
     });
+
+    try {
+        // 1. Git install තියෙනවද?
+        const gitCheck = await run('git --version');
+        if (!gitCheck.ok) {
+            return await sock.sendMessage(from, {
+                text: `❌ *Git install කරලා නෑ!*\n\n` +
+                      `📦 Install:\n\`\`\`\nTermux: pkg install git\nUbuntu: sudo apt install git\n\`\`\`\n\n> ${BOT_NAME}`,
+                edit: s.key
+            });
+        }
+
+        // 2. Git repo එකක්ද?
+        const repoCheck = await run('git rev-parse --is-inside-work-tree');
+        if (!repoCheck.ok || repoCheck.stdout !== 'true') {
+            return await sock.sendMessage(from, {
+                text: `❌ *Git repository එකක් නෙමෙයි!*\n\n` +
+                      `📁 Folder: ${process.cwd()}\n\n` +
+                      `💡 *Fix:*\n\`\`\`\ngit init\ngit remote add origin <YOUR_GITHUB_URL>\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
+                edit: s.key
+            });
+        }
+
+        // 3. Remote set කරලා තියෙනවද?
+        const remoteCheck = await run('git remote -v');
+        if (!remoteCheck.stdout || !remoteCheck.stdout.includes('origin')) {
+            return await sock.sendMessage(from, {
+                text: `❌ *Remote (origin) set කරලා නෑ!*\n\n` +
+                      `💡 *Fix:*\n\`\`\`\ngit remote add origin <YOUR_GITHUB_URL>\n\`\`\`\n\n> ${BOT_NAME}`,
+                edit: s.key
+            });
+        }
+
+        // 4. Local changes? → stash
+        const statusCheck = await run('git status --porcelain');
+        if (statusCheck.stdout) {
+            await sock.sendMessage(from, { text: '⚠️ Local changes — stash කරනවා...', edit: s.key });
+            await run('git stash');
+        }
+
+        // 5. Pull
+        await sock.sendMessage(from, { text: '🔄 Pulling from GitHub...', edit: s.key });
+        const pull = await run('git pull 2>&1', 60000);
+        const out = (pull.stdout + '\n' + pull.stderr).trim();
+
+        // 6. Result
+        if (!pull.ok || /fatal|error|conflict/i.test(out)) {
+            return await sock.sendMessage(from, {
+                text: `❌ *Update Failed!*\n\n` +
+                      `📋 Details:\n\`\`\`\n${out.slice(0, 800)}\n\`\`\`\n\n` +
+                      `💡 *Manual fix:*\n\`\`\`\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
+                edit: s.key
+            });
+        }
+
+        if (/Already up to date/i.test(out)) {
+            return await sock.sendMessage(from, {
+                text: `✅ *Already up to date!*\n\n> ${BOT_NAME}`,
+                edit: s.key
+            });
+        }
+
+        await sock.sendMessage(from, {
+            text: `✅ *Update Successful!*\n\n` +
+                  `📋 Changes:\n\`\`\`\n${out.slice(0, 1000)}\n\`\`\`\n\n` +
+                  `🔄 Restart: *.restart*\n\n> ${BOT_NAME}`,
+            edit: s.key
+        });
+
+    } catch (e) {
+        await sock.sendMessage(from, {
+            text: `❌ *Error:* ${e.message}\n\n> ${BOT_NAME}`,
+            edit: s.key
+        });
+    }
 }, { public: false });
 
 // =======================================================
