@@ -1,13 +1,13 @@
 require('dotenv').config();
 const fs = require('fs-extra');
 const path = require('path');
+const os = require('os');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const express = require('express');
+const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser, Browsers, delay } = require('@whiskeysockets/baileys');
 const P = require('pino');
-
-// ==========================================
-// WEB SERVER
-// ==========================================
-const { startWebServer, setSessions, setBotData } = require('./web/server');
 
 // ==========================================
 // GLOBAL DATA
@@ -19,110 +19,634 @@ fs.ensureDirSync('./data');
 
 let botData = {
     antilinkGroups: {},
-    totalBots: 0,
-    registeredBots: [],
     statusSettings: {},
-    antiDelete: {},
-    userNames: {},
+    autoReacts: {},
     antiCall: {},
+    isPublic: false,
     webUsers: [],
-    isPublic: false
+    owners: []
 };
 
 if (fs.existsSync(DATA_FILE)) {
     try { botData = fs.readJsonSync(DATA_FILE); } catch (e) {}
 }
+if (!botData.owners) botData.owners = [];
 
 function saveBotData() {
     fs.writeJsonSync(DATA_FILE, botData);
 }
 
 const sessions = {};
-const messageLogs = {};
-const pairingCooldowns = new Map();
 
 // ==========================================
-// GLOBAL PAIR CODE GENERATOR (from Web)
+// HELPERS
+// ==========================================
+function isOwner(sender) {
+    if (!sender) return false;
+    const senderNum = sender.split('@')[0].split(':')[0];
+    const mainOwner = process.env.OWNER_NUMBER || '94760601455';
+    return senderNum === mainOwner || botData.owners.includes(senderNum);
+}
+
+async function checkAdmin(sock, chatId, senderId) {
+    if (!chatId.endsWith('@g.us')) return true;
+    try {
+        const metadata = await sock.groupMetadata(chatId);
+        const senderNumber = jidNormalizedUser(senderId).split('@')[0].split(':')[0];
+        const participant = metadata.participants.find(p => {
+            const pId = jidNormalizedUser(p.id).split('@')[0].split(':')[0];
+            return pId === senderNumber;
+        });
+        return !!(participant && (participant.admin === 'admin' || participant.admin === 'superadmin'));
+    } catch (e) { return false; }
+}
+
+// ==========================================
+// CLOUDFLARE BYPASS
+// ==========================================
+const bypassCache = new Map();
+
+async function fetchWithBypass(url) {
+    if (bypassCache.has(url)) {
+        const cached = bypassCache.get(url);
+        if (Date.now() - cached.time < 5 * 60 * 1000) return cached.data;
+    }
+
+    try {
+        const res = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            },
+            timeout: 30000
+        });
+
+        if (res.data.includes('cf-challenge') || res.data.includes('Just a moment')) {
+            throw new Error('Cloudflare detected');
+        }
+
+        const result = { html: res.data, $: cheerio.load(res.data) };
+        bypassCache.set(url, { data: result, time: Date.now() });
+        
+        if (bypassCache.size > 50) {
+            const firstKey = bypassCache.keys().next().value;
+            bypassCache.delete(firstKey);
+        }
+        
+        return result;
+    } catch (e) {
+        const res = await axios.get(url, { timeout: 30000 });
+        return { html: res.data, $: cheerio.load(res.data) };
+    }
+}
+
+// ==========================================
+// COMMAND SYSTEM (AUTO LOAD)
+// ==========================================
+const COMMANDS = {};
+
+// Helper to register commands
+function register(name, aliases, handler, options = {}) {
+    const cmd = {
+        name,
+        aliases: aliases || [],
+        handler,
+        ownerOnly: options.ownerOnly || false,
+        public: options.public !== false,
+        category: options.category || 'main'
+    };
+    
+    COMMANDS[name] = cmd;
+    cmd.aliases.forEach(a => COMMANDS[a] = cmd);
+}
+
+// ==========================================
+// REGISTER ALL COMMANDS
+// ==========================================
+
+// Main
+register('menu', ['help'], async (ctx) => {
+    const { sock, from, msg, config } = ctx;
+    const isBotOwner = isOwner(ctx.sender) || msg.key.fromMe;
+    
+    let menuText = `𝗛𝗔𝗖𝗞𝗘𝗥 𝗣𝗥𝗢 𝗨𝗟𝗧𝗥𝗔 𝗔𝗖𝗧𝗜𝗩𝗘\n` +
+                   `╭━━━〔 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 〕━━━┈⊷\n` +
+                   `┃ ⋄ .menu\n` +
+                   `┃ ⋄ .ping\n` +
+                   `┃ ⋄ .owner\n` +
+                   `┃ ⋄ .dp\n` +
+                   `┃ ⋄ .ai [question]\n` +
+                   `┃ ⋄ .movie [name]\n` +
+                   `┃ ⋄ .moviedl [url]\n` +
+                   `┃ ⋄ .cinesubz [name]\n` +
+                   `┃ ⋄ .animeclub2 [name]\n` +
+                   `┃ ⋄ .fitgirl [game]\n` +
+                   `┃ ⋄ .dodi [game]\n` +
+                   `┃ ⋄ .tiktok [url]\n` +
+                   `┃ ⋄ .fb [url]\n` +
+                   `┃ ⋄ .ig [url]\n` +
+                   `┃ ⋄ .status on/off\n`;
+
+    if (isBotOwner) {
+        menuText += `┃\n┃ *OWNER*\n` +
+                   `┃ ⋄ .public / .private\n` +
+                   `┃ ⋄ .addowner [num]\n` +
+                   `┃ ⋄ .delowner [num]\n` +
+                   `┃ ⋄ .broadcast [msg]\n` +
+                   `┃ ⋄ .chnlreact [jid] [emoji]\n`;
+    }
+    
+    menuText += `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n> POWERED BY HACKER PRO TEAM`;
+
+    await sock.sendMessage(from, {
+        image: { url: 'https://res.cloudinary.com/dqlh378fb/image/upload/v1790485177/zanta_media_uploads/wfkglvlowl9jcmqpl5ji.jpg' },
+        caption: menuText
+    }, { quoted: msg });
+}, { public: true, category: 'main' });
+
+register('ping', ['speed'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    const s = Date.now();
+    const sent = await sock.sendMessage(from, { text: '🏓 Pinging...' }, { quoted: msg });
+    const ping = Date.now() - s;
+    const mem = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
+    await sock.sendMessage(from, {
+        text: `⚡ *Pong!*\n📊 ${ping}ms\n💾 RAM: ${mem}MB\n🖥️ ${os.platform()}\n\n> POWERED BY HACKER PRO TEAM`,
+        edit: sent.key
+    });
+}, { public: true, category: 'main' });
+
+register('owner', [], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    const ownerNum = process.env.OWNER_NUMBER || '94760601455';
+    const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:Hacker Pro\nTEL;type=CELL;type=VOICE;waid=${ownerNum}:+${ownerNum}\nEND:VCARD`;
+    await sock.sendMessage(from, {
+        contacts: { displayName: 'Hacker Pro', contacts: [{ vcard }] }
+    }, { quoted: msg });
+}, { public: true, category: 'main' });
+
+register('dp', ['profilepic'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    try {
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+        const target = mentioned || msg.key.participant || from;
+        const pp = await sock.profilePictureUrl(target, 'image').catch(() => null);
+        if (!pp) return await sock.sendMessage(from, { text: '❌ No profile picture' }, { quoted: msg });
+        await sock.sendMessage(from, { image: { url: pp }, caption: '✅ Profile Picture\n\n> POWERED BY HACKER PRO TEAM' }, { quoted: msg });
+    } catch (e) {}
+}, { public: true, category: 'tools' });
+
+// Owner
+register('public', [], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    botData.isPublic = true;
+    saveBotData();
+    await sock.sendMessage(from, { text: '✅ *PUBLIC* mode ON' }, { quoted: msg });
+}, { ownerOnly: true });
+
+register('private', [], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    botData.isPublic = false;
+    saveBotData();
+    await sock.sendMessage(from, { text: '✅ *PRIVATE* mode ON' }, { quoted: msg });
+}, { ownerOnly: true });
+
+register('addowner', ['addown'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '👑 Usage: .addowner <number>' }, { quoted: msg });
+    const num = args[0].replace(/[^0-9]/g, '');
+    if (botData.owners.includes(num)) return await sock.sendMessage(from, { text: '⚠️ Already owner' }, { quoted: msg });
+    botData.owners.push(num);
+    saveBotData();
+    await sock.sendMessage(from, { text: `✅ Added: +${num}` }, { quoted: msg });
+}, { ownerOnly: true });
+
+register('delowner', ['delown'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '👑 Usage: .delowner <number>' }, { quoted: msg });
+    const num = args[0].replace(/[^0-9]/g, '');
+    const idx = botData.owners.indexOf(num);
+    if (idx === -1) return await sock.sendMessage(from, { text: '⚠️ Not an owner' }, { quoted: msg });
+    botData.owners.splice(idx, 1);
+    saveBotData();
+    await sock.sendMessage(from, { text: `✅ Removed: +${num}` }, { quoted: msg });
+}, { ownerOnly: true });
+
+register('broadcast', ['bc'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '📢 Usage: .broadcast <msg>' }, { quoted: msg });
+    const message = args.join(" ");
+    let sent = 0;
+    for (const [userId, session] of Object.entries(sessions)) {
+        if (session.isConnected && session.sock) {
+            try {
+                const botNumber = jidNormalizedUser(session.sock.user.id);
+                await session.sock.sendMessage(botNumber, {
+                    text: `📢 *FROM OWNER*\n\n${message}\n\n> POWERED BY HACKER PRO TEAM`
+                });
+                sent++;
+            } catch (e) {}
+        }
+    }
+    await sock.sendMessage(from, { text: `✅ Sent to ${sent} bots` }, { quoted: msg });
+}, { ownerOnly: true });
+
+register('chnlreact', ['creact'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '📺 Usage: .chnlreact <jid> <emoji>' }, { quoted: msg });
+    try {
+        await sock.newsletterReactMessage(args[0], "latest", args[1] || "👍");
+        await sock.sendMessage(from, { text: `✅ Reacted ${args[1] || "👍"}` }, { quoted: msg });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg });
+    }
+}, { ownerOnly: true });
+
+// AI
+register('ai', ['gpt', 'chat'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🤖 Usage: .ai <question>' }, { quoted: msg });
+    const status = await sock.sendMessage(from, { text: '🤖 Thinking...' }, { quoted: msg });
+
+    try {
+        const res = await axios.get('https://supunofc.site/api/ai/ai2', {
+            params: { prompt: args.join(" "), model: 'deepseek', apikey: process.env.SUPUN_API_KEY },
+            timeout: 60000
+        });
+        let answer = res.data.response || res.data.result || res.data.message || JSON.stringify(res.data);
+        if (String(answer).length > 4000) answer = String(answer).slice(0, 4000) + '...';
+        await sock.sendMessage(from, { text: `🤖 *AI:*\n\n${answer}\n\n> POWERED BY HACKER PRO TEAM`, edit: status.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'ai' });
+
+// Movies
+register('movie', ['film'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🎬 Usage: .movie <name>' }, { quoted: msg });
+    const query = args.join(" ");
+    const status = await sock.sendMessage(from, { text: `🔍 Searching: ${query}...` }, { quoted: msg });
+
+    try {
+        const res = await axios.get('https://supunofc.site/api/movie/zoom/search', {
+            params: { q: query, apikey: process.env.SUPUN_API_KEY }, timeout: 30000
+        });
+        const results = res.data.result || [];
+        if (!results.length) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎬 *Movie Results: ${query}*\n\n`;
+        results.slice(0, 5).forEach((r, i) => {
+            text += `*${i + 1}.* ${r.cleanTitle || r.title}\n🔗 ${r.link}\n\n`;
+        });
+        text += `> Use .moviedl <link>\n> POWERED BY HACKER PRO TEAM`;
+        await sock.sendMessage(from, { image: { url: results[0].thumbnail }, caption: text, edit: status.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'movie' });
+
+register('moviedl', ['moviedownload'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '🎬 Usage: .moviedl <link>' }, { quoted: msg });
+    const status = await sock.sendMessage(from, { text: '⬇️ Getting links...' }, { quoted: msg });
+
+    try {
+        const res = await axios.get('https://supunofc.site/api/movie/zoom/details', {
+            params: { url: args[0], apikey: process.env.SUPUN_API_KEY }, timeout: 30000
+        });
+        const r = res.data.result;
+        if (!r) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎬 *${r.title}*\n\n`;
+        if (r.synopsis) {
+            const syn = Array.isArray(r.synopsis) ? r.synopsis.join("\n").slice(0, 200) : String(r.synopsis).slice(0, 200);
+            text += `📖 ${syn}...\n\n`;
+        }
+        if (r.downloadLinks?.length) {
+            text += `📥 *Links (${r.downloadLinks.length}):*\n\n`;
+            r.downloadLinks.slice(0, 15).forEach((dl, i) => {
+                text += `*${i + 1}.* ${dl.title}\n🔗 ${dl.url}\n\n`;
+            });
+        }
+        text += `> POWERED BY HACKER PRO TEAM`;
+        await sock.sendMessage(from, { image: { url: r.poster }, caption: text, edit: status.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'movie' });
+
+register('cinesubz', ['csub'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🎬 Usage: .cinesubz <movie>' }, { quoted: msg });
+    const query = args.join(" ");
+    const status = await sock.sendMessage(from, { text: `🔍 Searching CineSubz: ${query}...` }, { quoted: msg });
+
+    try {
+        const { $ } = await fetchWithBypass(`https://cinesubz.co/?s=${encodeURIComponent(query)}`);
+        const results = [];
+        $('article, .post').each((i, el) => {
+            if (i >= 5) return;
+            const title = $(el).find('h2.entry-title a, h2 a').first().text().trim();
+            const link = $(el).find('h2.entry-title a, h2 a').first().attr('href');
+            const img = $(el).find('img').attr('src') || $(el).find('img').attr('data-src');
+            if (title && link) results.push({ title, link, img });
+        });
+
+        if (!results.length) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎬 *CineSubz Results*\n🔍 ${query}\n\n`;
+        results.forEach((r, i) => text += `*${i + 1}.* ${r.title}\n🔗 ${r.link}\n\n`);
+        text += `> POWERED BY HACKER PRO TEAM`;
+
+        await sock.sendMessage(from, {
+            image: { url: results[0].img || 'https://res.cloudinary.com/dqlh378fb/image/upload/v1790485177/zanta_media_uploads/wfkglvlowl9jcmqpl5ji.jpg' },
+            caption: text, edit: status.key
+        });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'movie' });
+
+register('animeclub2', ['aclub2', 'anime2'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🎌 Usage: .animeclub2 <anime>' }, { quoted: msg });
+    const query = args.join(" ");
+    const status = await sock.sendMessage(from, { text: `🔍 Searching AnimeClub2: ${query}...` }, { quoted: msg });
+
+    try {
+        const { $ } = await fetchWithBypass(`https://animeclub2.com/?s=${encodeURIComponent(query)}`);
+        const results = [];
+        $('article, .post, .item, .tvshows').each((i, el) => {
+            if (i >= 5) return;
+            const title = $(el).find('h2 a, h3 a, .entry-title a, .title a').first().text().trim();
+            const link = $(el).find('h2 a, h3 a, .entry-title a, .title a').first().attr('href');
+            const img = $(el).find('img').attr('src') || $(el).find('img').attr('data-src');
+            if (title && link) results.push({ title, link, img });
+        });
+
+        if (!results.length) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎌 *AnimeClub2 Results*\n🔍 ${query}\n\n`;
+        for (const r of results) {
+            text += `📺 *${r.title}*\n🔗 ${r.link}\n\n`;
+            if (r.link.includes('/tvshows/') || r.link.includes('/seasons/')) {
+                try {
+                    const { $: showPage } = await fetchWithBypass(r.link);
+                    const eps = [];
+                    showPage("a[href*='/episode'], .episode a, .episodes a").each((i, el) => {
+                        const t = showPage(el).text().trim();
+                        const l = showPage(el).attr('href');
+                        if (t && l) eps.push({ t, l });
+                    });
+                    if (eps.length) {
+                        text += `📥 *Episodes (${eps.length}):*\n`;
+                        eps.slice(0, 8).forEach((e, i) => text += `  ${i + 1}. ${e.t}\n     🔗 ${e.l}\n`);
+                        if (eps.length > 8) text += `  ... තව ${eps.length - 8}\n`;
+                    }
+                } catch (e) {}
+            }
+            text += `━━━━━━━━━━━━━\n\n`;
+        }
+        text += `> POWERED BY HACKER PRO TEAM`;
+
+        await sock.sendMessage(from, {
+            image: { url: results[0].img || 'https://res.cloudinary.com/dqlh378fb/image/upload/v1790485177/zanta_media_uploads/wfkglvlowl9jcmqpl5ji.jpg' },
+            caption: text, edit: status.key
+        });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'anime' });
+
+// PC Games
+register('fitgirl', ['fg'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🎮 Usage: .fitgirl <game>' }, { quoted: msg });
+    const query = args.join(" ");
+    const status = await sock.sendMessage(from, { text: `🎮 Searching: ${query}...` }, { quoted: msg });
+
+    try {
+        const { $ } = await fetchWithBypass(`https://fitgirl-repacks.site/?s=${encodeURIComponent(query)}`);
+        const results = [];
+        $('article, .post').each((i, el) => {
+            if (i >= 5) return;
+            const title = $(el).find('h1.entry-title a, h2.entry-title a, h2 a').first().text().trim();
+            const link = $(el).find('h1.entry-title a, h2.entry-title a, h2 a').first().attr('href');
+            if (title && link) results.push({ title, link });
+        });
+        if (!results.length) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎮 *FitGirl Repacks*\n🔍 ${query}\n\n`;
+        results.forEach((r, i) => text += `*${i + 1}.* ${r.title}\n🔗 ${r.link}\n\n`);
+        text += `> POWERED BY HACKER PRO TEAM`;
+        await sock.sendMessage(from, { text, edit: status.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'game' });
+
+register('dodi', [], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args.length) return await sock.sendMessage(from, { text: '🎮 Usage: .dodi <game>' }, { quoted: msg });
+    const query = args.join(" ");
+    const status = await sock.sendMessage(from, { text: `🎮 Searching: ${query}...` }, { quoted: msg });
+
+    try {
+        const { $ } = await fetchWithBypass(`https://dodi-repacks.site/?s=${encodeURIComponent(query)}`);
+        const results = [];
+        $('article, .post').each((i, el) => {
+            if (i >= 5) return;
+            const title = $(el).find('h2.entry-title a, h1.entry-title a, h2 a').first().text().trim();
+            const link = $(el).find('h2.entry-title a, h1.entry-title a, h2 a').first().attr('href');
+            if (title && link) results.push({ title, link });
+        });
+        if (!results.length) return await sock.sendMessage(from, { text: '❌ හම්බුනේ නෑ!', edit: status.key });
+
+        let text = `🎮 *DODI Repacks*\n🔍 ${query}\n\n`;
+        results.forEach((r, i) => text += `*${i + 1}.* ${r.title}\n🔗 ${r.link}\n\n`);
+        text += `> POWERED BY HACKER PRO TEAM`;
+        await sock.sendMessage(from, { text, edit: status.key });
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'game' });
+
+// Downloads
+register('tiktok', ['tt'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '📥 Usage: .tiktok <url>' }, { quoted: msg });
+    const status = await sock.sendMessage(from, { text: '⬇️ Downloading...' }, { quoted: msg });
+
+    try {
+        const res = await axios.get(`https://www.tikwm.com/api/?url=${args[0]}`, { timeout: 30000 });
+        const d = res.data.data;
+        if (!d) return await sock.sendMessage(from, { text: '❌ Failed!', edit: status.key });
+        await sock.sendMessage(from, {
+            video: { url: d.play },
+            caption: `🎵 *TikTok*\n👤 ${d.author?.nickname || ''}\n\n> POWERED BY HACKER PRO TEAM`
+        }, { quoted: msg });
+        await sock.sendMessage(from, { delete: status.key }).catch(() => {});
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'download' });
+
+register('fb', ['facebook'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '📥 Usage: .fb <url>' }, { quoted: msg });
+    const status = await sock.sendMessage(from, { text: '⬇️ Downloading...' }, { quoted: msg });
+
+    try {
+        const res = await axios.get(`https://api.akuari.my.id/downloader/fb?link=${args[0]}`, { timeout: 30000 });
+        const dl = res.data?.result?.url || res.data?.result?.hd;
+        if (!dl) return await sock.sendMessage(from, { text: '❌ Failed!', edit: status.key });
+        await sock.sendMessage(from, {
+            video: { url: dl },
+            caption: `📘 Facebook Video\n\n> POWERED BY HACKER PRO TEAM`
+        }, { quoted: msg });
+        await sock.sendMessage(from, { delete: status.key }).catch(() => {});
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'download' });
+
+register('ig', ['instagram'], async (ctx) => {
+    const { sock, from, msg, args } = ctx;
+    if (!args[0]) return await sock.sendMessage(from, { text: '📥 Usage: .ig <url>' }, { quoted: msg });
+    const status = await sock.sendMessage(from, { text: '⬇️ Downloading...' }, { quoted: msg });
+
+    try {
+        const res = await axios.get(`https://api.instagram.com/oembed/?url=${args[0]}`, { timeout: 30000 });
+        await sock.sendMessage(from, {
+            image: { url: res.data.thumbnail_url },
+            caption: `📸 @${res.data.author_name}\n\n> POWERED BY HACKER PRO TEAM`
+        }, { quoted: msg });
+        await sock.sendMessage(from, { delete: status.key }).catch(() => {});
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
+    }
+}, { public: true, category: 'download' });
+
+// Status
+register('status', [], async (ctx) => {
+    const { sock, from, msg, args, userId } = ctx;
+    if (!botData.statusSettings[userId]) {
+        botData.statusSettings[userId] = { autoStatus: false, autoSeen: false, autoLike: false };
+    }
+    const opt = args[0]?.toLowerCase();
+    if (opt === 'on') {
+        botData.statusSettings[userId] = { autoStatus: true, autoSeen: true, autoLike: true };
+        saveBotData();
+        await sock.sendMessage(from, { text: '✅ Status ON' }, { quoted: msg });
+    } else if (opt === 'off') {
+        botData.statusSettings[userId] = { autoStatus: false, autoSeen: false, autoLike: false };
+        saveBotData();
+        await sock.sendMessage(from, { text: '❌ Status OFF' }, { quoted: msg });
+    } else {
+        await sock.sendMessage(from, { text: '📊 Usage: .status on/off' }, { quoted: msg });
+    }
+}, { public: true, category: 'tools' });
+
+// ==========================================
+// WEB SERVER
+// ==========================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'web', 'public')));
+
+app.post("/api/pair", async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone || phone.length < 10) return res.status(400).json({ error: "Invalid phone" });
+        const userId = "web_" + Date.now();
+        if (global.generatePairCode) global.generatePairCode(userId, phone);
+        res.json({ success: true, userId, phone });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/pair/:userId", (req, res) => {
+    const session = sessions[req.params.userId];
+    if (!session) return res.json({ status: "not_found" });
+    if (session.pairCode) return res.json({ status: "success", code: session.pairCode });
+    res.json({ status: "pending" });
+});
+
+app.post("/api/qr/request", async (req, res) => {
+    try {
+        const userId = "qr_" + Date.now();
+        if (global.generateQRCode) global.generateQRCode(userId);
+        res.json({ success: true, userId });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/qr/:userId", (req, res) => {
+    const session = sessions[req.params.userId];
+    if (!session) return res.json({ status: "not_found" });
+    if (session.qrCode) return res.json({ status: "success", qr: session.qrCode });
+    if (session.isConnected) return res.json({ status: "connected" });
+    res.json({ status: "pending" });
+});
+
+app.get("/api/status", (req, res) => {
+    const activeBots = Object.values(sessions).filter(s => s.isConnected).length;
+    res.json({
+        botName: "HACKER PRO ULTRA",
+        online: true,
+        activeBots,
+        totalUsers: (botData.webUsers || []).length
+    });
+});
+
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, 'web', 'public', 'index.html'));
+});
+
+app.listen(PORT, () => console.log(`🌐 Web: http://localhost:${PORT}`));
+
+// ==========================================
+// PAIR / QR GENERATORS
 // ==========================================
 global.generatePairCode = async (userId, phoneNumber) => {
     try {
-        if (sessions[userId]) {
-            if (sessions[userId].sock) {
-                try { sessions[userId].sock.logout(); } catch (e) {}
-                try { sessions[userId].sock.end(); } catch (e) {}
-            }
+        if (sessions[userId]?.sock) {
+            try { sessions[userId].sock.logout(); } catch (e) {}
+            try { sessions[userId].sock.end(); } catch (e) {}
             delete sessions[userId];
         }
-
         const authPath = path.join(AUTH_DIR, userId);
-        if (fs.existsSync(authPath)) {
-            try { fs.removeSync(authPath); } catch (e) {}
-        }
+        if (fs.existsSync(authPath)) { try { fs.removeSync(authPath); } catch (e) {} }
 
         sessions[userId] = new BotSession(userId);
         sessions[userId].phoneNumber = phoneNumber;
-        sessions[userId].createdAt = new Date().toISOString();
-
-        if (!botData.webUsers) botData.webUsers = [];
         if (!botData.webUsers.includes(phoneNumber)) {
             botData.webUsers.push(phoneNumber);
             saveBotData();
         }
-
-        await sessions[userId].initialize(phoneNumber);
-    } catch (e) {
-        console.error("Web pair code error:", e.message);
-    }
+        await sessions[userId].initialize(phoneNumber, false);
+    } catch (e) { console.error("Pair error:", e.message); }
 };
 
-// ==========================================
-// IMPORT COMMANDS
-// ==========================================
-const commands = {
-    song: require(path.join(__dirname, 'commands', 'song.js')),
-    video: require(path.join(__dirname, 'commands', 'video.js')),
-    anticall: require(path.join(__dirname, 'commands', 'anticall.js')),
-    status: require(path.join(__dirname, 'commands', 'status.js')),
-    antidelete: require(path.join(__dirname, 'commands', 'antidelete.js')),
-    autoreacts: require(path.join(__dirname, 'commands', 'autoreacts.js')),
-    vv: require(path.join(__dirname, 'commands', 'vv.js')),
-    dp: require(path.join(__dirname, 'commands', 'dp.js')),
-    ytmp3: require(path.join(__dirname, 'commands', 'ytmp3.js')),
-    ytmp4: require(path.join(__dirname, 'commands', 'ytmp4.js')),
-    welcome: require(path.join(__dirname, 'commands', 'welcome.js')),
-    antilink: require(path.join(__dirname, 'commands', 'antilink.js')),
-    kick: require(path.join(__dirname, 'commands', 'kick.js')),
-};
-
-const { storeMessage, handleMessageRevocation } = require(path.join(__dirname, 'commands', 'antidelete.js'));
-const isOwner = require(path.join(__dirname, 'lib', 'isOwner.js'));
-const { isAdmin: checkAdmin } = require(path.join(__dirname, 'lib', 'isAdmin.js'));
-
-// ==========================================
-// LOAD EXISTING SESSIONS
-// ==========================================
-async function loadExistingSessions() {
+global.generateQRCode = async (userId) => {
     try {
-        const authDirs = await fs.readdir(AUTH_DIR);
-        for (const userId of authDirs) {
-            const authPath = path.join(AUTH_DIR, userId);
-            const stats = await fs.stat(authPath);
-            if (stats.isDirectory()) {
-                const credsFile = path.join(authPath, 'creds.json');
-                if (fs.existsSync(credsFile)) {
-                    if (!sessions[userId]) {
-                        sessions[userId] = new BotSession(userId);
-                        sessions[userId].initialize().catch(err => {
-                            console.error(`[System] Failed to auto-initialize session ${userId}:`, err.message);
-                        });
-                    }
-                }
-            }
+        if (sessions[userId]?.sock) {
+            try { sessions[userId].sock.logout(); } catch (e) {}
+            try { sessions[userId].sock.end(); } catch (e) {}
+            delete sessions[userId];
         }
-    } catch (err) {
-        console.error('[System] Error loading existing sessions:', err.message);
-    }
-}
+        const authPath = path.join(AUTH_DIR, userId);
+        if (fs.existsSync(authPath)) { try { fs.removeSync(authPath); } catch (e) {} }
+
+        sessions[userId] = new BotSession(userId);
+        await sessions[userId].initialize(null, true);
+    } catch (e) { console.error("QR error:", e.message); }
+};
 
 // ==========================================
 // BOT SESSION CLASS
@@ -134,57 +658,18 @@ class BotSession {
         this.isConnected = false;
         this.authPath = path.join(AUTH_DIR, userId);
         this.isInitializing = false;
-        this.lastConnectMessageTime = null;
-        this.messageQueue = [];
-        this.isProcessingQueue = false;
         this.onlineMessageSent = false;
         this.pairCode = null;
+        this.qrCode = null;
         this.phoneNumber = null;
-        this.createdAt = null;
     }
 
-    async addToQueue(task) {
-        this.messageQueue.push(task);
-        if (!this.isProcessingQueue) {
-            this.processQueue();
-        }
-    }
+    sendLog(msg) { console.log(`[${this.userId}] ${msg}`); }
 
-    async processQueue() {
-        this.isProcessingQueue = true;
-        while (this.messageQueue.length > 0) {
-            const task = this.messageQueue.shift();
-            try {
-                await task();
-            } catch (e) {
-                this.sendLog(`Queue error: ${e.message}`, "error");
-            }
-            await delay(500);
-        }
-        this.isProcessingQueue = false;
-    }
-
-    sendLog(message, type = 'info') {
-        console.log(`[${this.userId}] ${message}`);
-    }
-
-    async safeSendMessage(jid, content, options = {}) {
-        if (!this.isConnected || !this.sock) {
-            throw new Error("Connection Closed");
-        }
-        try {
-            return await this.sock.sendMessage(jid, content, options);
-        } catch (e) {
-            if (e.message.includes("closed") || e.message.includes("Connection")) {
-                this.isConnected = false;
-            }
-            throw e;
-        }
-    }
-
-    async initialize(pairingNumber = null) {
+    async initialize(pairingNumber = null, qrMode = false) {
         if (this.isInitializing) return;
         this.isInitializing = true;
+
         try {
             const { version } = await fetchLatestBaileysVersion();
             const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
@@ -195,41 +680,27 @@ class BotSession {
                     creds: state.creds,
                     keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
                 },
-                generateHighQualityLinkPreview: true,
-                maxMsgRetryCount: 3,
-                msgRetryCounterCache: new Map(),
-                getMessage: async (key) => {
-                    if (messageLogs[this.userId] && messageLogs[this.userId][key.id]) {
-                        return messageLogs[this.userId][key.id].message;
-                    }
-                    return { conversation: 'Hello' };
-                },
+                generateHighQualityLinkPreview: false,
+                getMessage: async () => ({ conversation: 'Hello' }),
                 printQRInTerminal: false,
                 logger: P({ level: 'fatal' }),
                 browser: Browsers.ubuntu('Chrome'),
                 syncFullHistory: false,
-                shouldSyncHistoryMessage: () => false,
                 markOnlineOnConnect: true,
                 keepAliveIntervalMs: 60000,
                 defaultQueryTimeoutMs: 60000,
-                connectTimeoutMs: 60000,
+                emitOwnEvents: false
             });
 
-            // ==========================================
-            // PAIRING CODE
-            // ==========================================
             if (pairingNumber && !state.creds.registered) {
-                this.sendLog(`Initiating pairing process for ${pairingNumber}...`);
                 await delay(3000);
-
                 try {
                     let code = await this.sock.requestPairingCode(pairingNumber);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-
                     this.pairCode = code;
-                    this.sendLog(`Pairing code generated: ${code}`);
+                    this.sendLog(`Pair code: ${code}`);
                 } catch (e) {
-                    this.sendLog(`Pairing code generation failed: ${e.message}`, "error");
+                    this.sendLog(`Pair failed: ${e.message}`);
                 }
             }
 
@@ -238,378 +709,225 @@ class BotSession {
             this.sock.ev.on('group-participants.update', async (anu) => {
                 try {
                     if (anu.action === 'add') {
-                        await commands.welcome.handleJoinEvent(this.sock, anu.id, anu.participants).catch(() => {});
+                        const metadata = await this.sock.groupMetadata(anu.id);
+                        for (const p of anu.participants) {
+                            const user = (typeof p === 'string' ? p : p.id).split('@')[0];
+                            await this.sock.sendMessage(anu.id, {
+                                text: `╭╼━≪•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•≫━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @${user} 👋\n┃Member count: #${metadata.participants.length}\n╰━━━━━━━━━━━━━━━╯\n\n*@${user}* Welcome to *${metadata.subject}*!\n\n> POWERED BY HACKER PRO TEAM`,
+                                mentions: [typeof p === 'string' ? p : p.id]
+                            }).catch(() => {});
+                        }
                     }
                 } catch (e) {}
             });
 
-            // ==========================================
-            // MESSAGE HANDLER
-            // ==========================================
             this.sock.ev.on('messages.upsert', async (chatUpdate) => {
-                try {
-                    const msg = chatUpdate.messages[0];
-                    if (!msg.message) return;
-
-                    if (msg.key.id.startsWith('BAE5') && msg.key.fromMe) return;
-
-                    if (msg.messageStubType === 1) {
-                        this.sendLog("Ciphertext message detected.", "warning");
-                    }
-
-                    // Status
-                    if (msg.key.remoteJid === 'status@broadcast') {
-                        const settings = botData.statusSettings[this.userId];
-                        if (settings && settings.autoStatus) {
-                            if (settings.autoSeen) {
-                                await this.sock.readMessages([msg.key]).catch(() => {});
-                            }
-                            if (settings.autoLike) {
-                                await this.sock.sendMessage('status@broadcast', {
-                                    react: { text: '❤️', key: msg.key }
-                                }, { statusJidList: [msg.key.participant] }).catch(() => {});
-                            }
-                        }
-                        return;
-                    }
-
-                    const from = msg.key.remoteJid;
-                    const isGroup = from.endsWith('@g.us');
-                    const sender = isGroup ? msg.key.participant : from;
-                    const botNumber = jidNormalizedUser(this.sock.user.id);
-
-                    const messageContent = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message?.viewOnceMessageV2?.message || msg.message;
-                    if (!messageContent) return;
-
-                    const body = (messageContent.conversation ||
-                                  messageContent.extendedTextMessage?.text ||
-                                  messageContent.imageMessage?.caption ||
-                                  messageContent.videoMessage?.caption ||
-                                  messageContent.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                                  messageContent.buttonsResponseMessage?.selectedButtonId ||
-                                  messageContent.templateButtonReplyMessage?.selectedId ||
-                                  '').trim();
-
-                    // Auto Reacts
-                    if (botData.autoReacts && botData.autoReacts[this.userId] && !msg.key.fromMe) {
-                        try {
-                            const emojis = ['❤️', '🔥', '✨', '🙌', '👍', '💯', '⚡'];
-                            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-                            await this.sock.sendMessage(from, { react: { text: randomEmoji, key: msg.key } }).catch(() => {});
-                        } catch (e) {}
-                    }
-
-                    // Anti Delete
-                    if (botData.antiDelete[this.userId]) {
-                        try {
-                            if (msg.message?.protocolMessage?.type === 0) {
-                                await handleMessageRevocation(this.sock, msg);
-                            } else {
-                                await storeMessage(msg);
-                            }
-                        } catch (e) {}
-                    }
-
-                    // Anti Link
-                    if (isGroup && botData.antilinkGroups[from] && !msg.key.fromMe) {
-                        const linkRegex = /chat\.whatsapp\.com\/|https?:\/\/\S+/gi;
-                        if (linkRegex.test(body)) {
-                            const isSenderAdmin = await checkAdmin(this.sock, from, sender);
-                            const isBotAdmin = await checkAdmin(this.sock, from, this.sock.user.id);
-
-                            if (!isSenderAdmin) {
-                                const mode = botData.antilinkGroups[from];
-                                if (isBotAdmin) {
-                                    await this.sock.sendMessage(from, { delete: msg.key }).catch(() => {});
-                                    if (mode === 'kick') {
-                                        try {
-                                            await this.sock.groupParticipantsUpdate(from, [sender], 'remove').catch(() => {});
-                                        } catch (e) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ==========================================
-                    // COMMANDS
-                    // ==========================================
-                    const prefix = '.';
-                    if (body.startsWith(prefix)) {
-                        const args = body.slice(prefix.length).trim().split(/ +/);
-                        const commandName = args.shift().toLowerCase();
-
-                        const getGroupAdmins = async () => {
-                            if (!isGroup) return { isSenderAdmin: true, isBotAdmin: true };
-                            try {
-                                const isSenderAdmin = await checkAdmin(this.sock, from, sender).catch(() => isOwner(sender));
-                                const isBotAdmin = await checkAdmin(this.sock, from, this.sock.user.id).catch(() => false);
-                                return { isSenderAdmin, isBotAdmin };
-                            } catch (e) {
-                                return { isSenderAdmin: isOwner(sender), isBotAdmin: false };
-                            }
-                        };
-
-                        try {
-                            const isBotOwner = isOwner(sender) || msg.key.fromMe;
-                            const publicCommands = ['video', 'song', 'dp', 'ytmp4', 'ytmp3', 'vv', 'menu'];
-
-                            if (!isBotOwner) {
-                                if (!botData.isPublic) return;
-                                if (!publicCommands.includes(commandName)) {
-                                    return await this.sock.sendMessage(from, { text: "*ONLY OWNER CAN USE THIS COMMAND*" }, { quoted: msg });
-                                }
-                            }
-
-                            await this.sock.sendMessage(from, { react: { text: '⏳', key: msg.key } }).catch(() => {});
-
-                            switch (commandName) {
-                                case 'public': {
-                                    if (!isOwner(sender) && !msg.key.fromMe) return;
-                                    botData.isPublic = true;
-                                    saveBotData();
-                                    await this.sock.sendMessage(from, { text: '✅ *Bot is now in PUBLIC mode.*' }, { quoted: msg }).catch(() => {});
-                                    break;
-                                }
-                                case 'private': {
-                                    if (!isOwner(sender) && !msg.key.fromMe) return;
-                                    botData.isPublic = false;
-                                    saveBotData();
-                                    await this.sock.sendMessage(from, { text: '✅ *Bot is now in PRIVATE mode.*' }, { quoted: msg }).catch(() => {});
-                                    break;
-                                }
-                                case 'menu': {
-                                    const reactions = ['⏳', '🔄', '⚙️', '✅'];
-                                    for (const emoji of reactions) {
-                                        await this.sock.sendMessage(from, { react: { text: emoji, key: msg.key } }).catch(() => {});
-                                        await delay(200);
-                                    }
-
-                                    let menuText = "";
-                                    if (isBotOwner) {
-                                        menuText = `𝗛𝗔𝗖𝗞𝗘𝗥 𝗣𝗥𝗢 𝗨𝗟𝗧𝗥𝗔 𝗔𝗖𝗧𝗜𝗩𝗘\n` +
-                                                   `╭━━━〔 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 〕━━━┈⊷\n` +
-                                                   `┃ ⋄ .𝗽𝘂𝗯𝗹𝗶𝗰 / .𝗽𝗿𝗶𝘃𝗮𝘁𝗲\n` +
-                                                   `┃ ⋄ .𝗮𝗻𝘁𝗶𝗱𝗲𝗹𝗲𝘁𝗲 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝘀𝘁𝗮𝘁𝘂𝘀 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝗮𝗻𝘁𝗶𝗰𝗮𝗹𝗹 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝗮𝘂𝘁𝗼𝗿𝗲𝗮𝗰𝘁𝘀 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝘃𝘃 (𝗿𝗲𝗽𝗹𝘆 𝘁𝗼 𝗼𝗻𝗰𝗲 𝘃𝗶𝗲𝘄)\n` +
-                                                   `┃ ⋄ .𝘀𝗼𝗻𝗴 [𝗻𝗮𝗺𝗲]\n` +
-                                                   `┃ ⋄ .𝘃𝗶𝗱𝗲𝗼 [𝗻𝗮𝗺𝗲]\n` +
-                                                   `┃ ⋄ .𝘆𝘁𝗺𝗽𝟯 [𝘂𝗿𝗹]\n` +
-                                                   `┃ ⋄ .𝘆𝘁𝗺𝗽𝟰 [𝘂𝗿𝗹]\n` +
-                                                   `┃ ⋄ .𝘄𝗲𝗹𝗰𝗼𝗺𝗲 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝗮𝗻𝘁𝗶𝗹𝗶𝗻𝗸 𝗼𝗻/𝗼𝗳𝗳\n` +
-                                                   `┃ ⋄ .𝗸𝗶𝗰𝗸 (𝗿𝗲𝗽𝗹𝘆 𝘁𝗼 𝘂𝘀𝗲𝗿)\n` +
-                                                   `┃ ⋄ .𝗱𝗽 (𝗴𝗲𝘁 𝗽𝗿𝗼𝗳𝗶𝗹𝗲 𝗽𝗶𝗰)\n` +
-                                                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
-                                                   `> *POWERED BY HACKER PRO TEAM*`;
-                                    } else {
-                                        menuText = `𝗛𝗔𝗖𝗞𝗘𝗥 𝗣𝗥𝗢 𝗨𝗟𝗧𝗥𝗔 𝗔𝗖𝗧𝗜𝗩𝗘\n` +
-                                                   `╭━━━〔 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 〕━━━┈⊷\n` +
-                                                   `┃ ⋄ .𝘃𝗶𝗱𝗲𝗼 [𝗻𝗮𝗺𝗲]\n` +
-                                                   `┃ ⋄ .𝘀𝗼𝗻𝗴 [𝗻𝗮𝗺𝗲]\n` +
-                                                   `┃ ⋄ .𝗱𝗽 (𝗴𝗲𝘁 𝗽𝗿𝗼𝗳𝗶𝗹𝗲 𝗽𝗶𝗰)\n` +
-                                                   `┃ ⋄ .𝘆𝘁𝗺𝗽𝟯 [𝘂𝗿𝗹]\n` +
-                                                   `┃ ⋄ .𝘆𝘁𝗺𝗽𝟰 [𝘂𝗿𝗹]\n` +
-                                                   `┃ ⋄ .𝘃𝘃 (𝗿𝗲𝗽𝗹𝘆 𝘁𝗼 𝗼𝗻𝗰𝗲 𝘃𝗶𝗲𝘄)\n` +
-                                                   `╰━━━━━━━━━━━━━━━━━━┈⊷\n\n` +
-                                                   `> *POWERED BY HACKER PRO TEAM*`;
-                                    }
-                                    await this.sock.sendMessage(from, {
-                                        image: { url: 'https://res.cloudinary.com/dqlh378fb/image/upload/v1790485177/zanta_media_uploads/wfkglvlowl9jcmqpl5ji.jpg' },
-                                        caption: menuText
-                                    }, { quoted: msg }).catch(() => {});
-                                    break;
-                                }
-                                case 'antilink': {
-                                    const { isSenderAdmin, isBotAdmin } = await getGroupAdmins();
-                                    await commands.antilink(this.sock, from, msg, isSenderAdmin, isBotAdmin, botData, saveBotData, args);
-                                    break;
-                                }
-                                case 'anticall':
-                                    await commands.anticall(this.sock, from, msg, (await getGroupAdmins()).isSenderAdmin, botData, saveBotData, this.userId, args);
-                                    break;
-                                case 'antidelete':
-                                    await commands.antidelete(this.sock, from, msg, (await getGroupAdmins()).isSenderAdmin, botData, saveBotData, this.userId, args);
-                                    break;
-                                case 'status':
-                                    await commands.status(this.sock, from, msg, (await getGroupAdmins()).isSenderAdmin, botData, saveBotData, this.userId, args);
-                                    break;
-                                case 'autoreacts':
-                                    await commands.autoreacts(this.sock, from, msg, (await getGroupAdmins()).isSenderAdmin, botData, saveBotData, this.userId, args);
-                                    break;
-                                case 'song':
-                                    await commands.song(this, from, msg);
-                                    break;
-                                case 'video':
-                                    await commands.video(this, from, msg);
-                                    break;
-                                case 'ytmp3':
-                                    await commands.ytmp3.run(this, msg, args, { sender: from });
-                                    break;
-                                case 'ytmp4':
-                                    await commands.ytmp4.run(this, msg, args, { sender: from });
-                                    break;
-                                case 'kick': {
-                                    const { isSenderAdmin, isBotAdmin } = await getGroupAdmins();
-                                    await commands.kick(this.sock, from, msg, isSenderAdmin, isBotAdmin, botData, saveBotData, args);
-                                    break;
-                                }
-                                case 'vv':
-                                    await commands.vv(this.sock, from, msg);
-                                    break;
-                                case 'dp':
-                                    await commands.dp(this.sock, from, msg);
-                                    break;
-                                case 'welcome':
-                                    await commands.welcome(this.sock, from, msg, (await getGroupAdmins()).isSenderAdmin, botData, saveBotData, args);
-                                    break;
-                            }
-
-                            this.addToQueue(async () => {
-                                await this.sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {});
-                            });
-                        } catch (e) {
-                            this.addToQueue(async () => {
-                                await this.sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {});
-                            });
-                            this.sendLog(`Command error (${commandName}): ` + e.message, 'error');
-                        }
-                    }
-                } catch (e) {
-                    console.error('Message Processing Error:', e);
-                }
+                await this.handleMessage(chatUpdate);
             });
 
             this.sock.ev.on('call', async (calls) => {
-                if (botData.antiCall[this.userId]) {
+                if (botData.antiCall?.[this.userId]) {
                     for (const call of calls) {
                         if (call.status === 'offer') {
-                            try {
-                                await this.sock.rejectCall(call.id, call.from).catch(() => {});
-                                await this.sock.sendMessage(call.from, { text: '⚠️ *Anti-Call Active!*' }).catch(() => {});
-                            } catch (e) {}
+                            try { await this.sock.rejectCall(call.id, call.from).catch(() => {}); } catch (e) {}
                         }
                     }
                 }
             });
 
             this.sock.ev.on('connection.update', async (update) => {
-                const { connection, lastDisconnect } = update;
+                const { connection, lastDisconnect, qr } = update;
+
+                if (qr && qrMode) {
+                    try {
+                        this.qrCode = await QRCode.toDataURL(qr);
+                        this.sendLog('QR Code generated');
+                    } catch (e) { this.qrCode = qr; }
+                }
+
                 if (connection === 'close') {
-                    const statusCode = (lastDisconnect.error)?.output?.statusCode;
-                    const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                    const code = (lastDisconnect.error)?.output?.statusCode;
                     this.isConnected = false;
                     this.isInitializing = false;
-
-                    if (shouldReconnect) {
-                        let delayTime = 5000;
-                        if (statusCode === DisconnectReason.restartRequired) delayTime = 1000;
-                        if (statusCode === 440) {
-                            delayTime = 30000;
-                            const authPath = this.authPath;
-                            if (fs.existsSync(authPath)) {
-                                try {
-                                    const files = fs.readdirSync(authPath);
-                                    for (const file of files) {
-                                        if (file.includes('lock') || file.includes('temp')) {
-                                            fs.removeSync(path.join(authPath, file));
-                                        }
-                                    }
-                                } catch (e) {}
-                            }
-                        }
-                        this.sendLog(`Connection closed (${statusCode}). Reconnecting in ${delayTime/1000}s...`);
-                        setTimeout(() => this.initialize(), delayTime);
-                    } else {
-                        this.sendLog(`Logged out.`, "error");
+                    if (code !== DisconnectReason.loggedOut) {
+                        let dt = code === DisconnectReason.restartRequired ? 1000 : 5000;
+                        if (code === 440) dt = 30000;
+                        setTimeout(() => this.initialize(), dt);
                     }
                 } else if (connection === 'open') {
                     this.isConnected = true;
                     this.isInitializing = false;
+                    this.qrCode = null;
                     const botNumber = jidNormalizedUser(this.sock.user.id);
-
                     if (!this.onlineMessageSent) {
                         this.onlineMessageSent = true;
-                        const onlineMsg = `HACKER PRO ULTRA IS ONLINE ✅\n> *USE .MENU TO SEE ALL COMMANDS*\n> *POWERED BY HACKER PRO TEAM*`;
-                        await this.sock.sendMessage(botNumber, { text: onlineMsg });
-                    }
-
-                    setInterval(async () => {
-                        if (this.isConnected) {
-                            try {
-                                await this.sock.query({
-                                    tag: 'iq',
-                                    attrs: { to: jidNormalizedUser(this.sock.user.id), type: 'set', xmlns: 'status' },
-                                    content: [{ tag: 'status', attrs: {}, content: Buffer.from("IM USING BEST BOT HACKER PRO ULTRA", 'utf-8') }]
-                                });
-                            } catch (e) {}
-                        }
-                    }, 30000);
-
-                    if (!this.lastConnectMessageTime) {
-                        this.lastConnectMessageTime = Date.now();
-
-                        const channelsToFollow = ['0029Vb6jjnfDOQIaXvp2fr1V', '0029VavHzv259PwTIz1XxJ09'];
-                        for (const inviteCode of channelsToFollow) {
-                            try {
-                                const metadata = await this.sock.newsletterMetadata("invite", inviteCode);
-                                if (metadata && metadata.id) await this.sock.newsletterFollow(metadata.id);
-                            } catch (e) {}
-                            await delay(2000);
-                        }
+                        await this.sock.sendMessage(botNumber, {
+                            text: `HACKER PRO ULTRA IS ONLINE ✅\n> *USE .MENU*\n> POWERED BY HACKER PRO TEAM`
+                        }).catch(() => {});
                     }
                 }
             });
+
         } catch (err) {
             this.isInitializing = false;
-            this.sendLog(`Initialization error: ${err.message}`, "error");
+            this.sendLog(`Init error: ${err.message}`);
+            setTimeout(() => this.initialize(), 10000);
+        }
+    }
 
-            if (err.message.includes('Bad MAC') || err.message.includes('Counter')) {
-                const authPath = this.authPath;
-                if (fs.existsSync(authPath)) {
-                    try {
-                        const files = fs.readdirSync(authPath);
-                        for (const file of files) {
-                            if (file.includes('pre-key') || file.includes('session') || file.includes('sender-key')) {
-                                fs.removeSync(path.join(authPath, file));
-                            }
-                        }
-                    } catch (e) {}
+    async handleMessage(chatUpdate) {
+        try {
+            const msg = chatUpdate.messages[0];
+            if (!msg.message) return;
+            if (msg.key.id.startsWith('BAE5') && msg.key.fromMe) return;
+
+            const from = msg.key.remoteJid;
+            const isGroup = from.endsWith('@g.us');
+            const sender = isGroup ? msg.key.participant : from;
+
+            const content = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message?.viewOnceMessageV2?.message || msg.message;
+            if (!content) return;
+
+            const body = (content.conversation ||
+                          content.extendedTextMessage?.text ||
+                          content.imageMessage?.caption ||
+                          content.videoMessage?.caption || '').trim();
+
+            if (!body) return;
+
+            // Status broadcast
+            if (from === 'status@broadcast') {
+                const settings = botData.statusSettings[this.userId];
+                if (settings?.autoSeen) await this.sock.readMessages([msg.key]).catch(() => {});
+                if (settings?.autoLike) {
+                    await this.sock.sendMessage('status@broadcast', {
+                        react: { text: '❤️', key: msg.key }
+                    }, { statusJidList: [msg.key.participant] }).catch(() => {});
                 }
-                setTimeout(() => this.initialize(), 5000);
-            } else {
-                setTimeout(() => this.initialize(), 10000);
+                return;
             }
+
+            // Antilink
+            if (isGroup && botData.antilinkGroups[from] && !msg.key.fromMe) {
+                if (/chat\.whatsapp\.com\/|https?:\/\/\S+/gi.test(body)) {
+                    const isAdmin = await checkAdmin(this.sock, from, sender);
+                    if (!isAdmin) await this.sock.sendMessage(from, { delete: msg.key }).catch(() => {});
+                }
+            }
+
+            // Commands
+            if (!body.startsWith('.')) return;
+
+            const args = body.slice(1).trim().split(/ +/);
+            const cmdName = args.shift().toLowerCase();
+
+            const command = COMMANDS[cmdName];
+            
+            // Unknown command — silently ignore or show help
+            if (!command) {
+                // Option: show help
+                // return await this.sock.sendMessage(from, { text: '❌ Unknown command. Use .menu' }, { quoted: msg });
+                return; // Silent
+            }
+
+            const isBotOwner = isOwner(sender) || msg.key.fromMe;
+
+            // Owner check
+            if (command.ownerOnly && !isBotOwner) {
+                return await this.sock.sendMessage(from, { text: '👑 Owner only' }, { quoted: msg });
+            }
+
+            // Public mode check
+            if (!isBotOwner && !botData.isPublic) return;
+            if (!isBotOwner && !command.public) return;
+
+            // React
+            await this.sock.sendMessage(from, { react: { text: '⏳', key: msg.key } }).catch(() => {});
+
+            // Build context
+            const ctx = {
+                sock: this.sock,
+                from,
+                msg,
+                sender,
+                isGroup,
+                args,
+                body,
+                userId: this.userId,
+                botData,
+                saveBotData,
+                isOwner: isBotOwner
+            };
+
+            // Execute with error handling
+            try {
+                await command.handler(ctx);
+                await this.sock.sendMessage(from, { react: { text: '✅', key: msg.key } }).catch(() => {});
+            } catch (cmdError) {
+                console.error(`[${cmdName}] Error:`, cmdError.message);
+                await this.sock.sendMessage(from, { text: `❌ Error: ${cmdError.message}` }, { quoted: msg }).catch(() => {});
+                await this.sock.sendMessage(from, { react: { text: '❌', key: msg.key } }).catch(() => {});
+            }
+
+        } catch (e) {
+            console.error('Message Error:', e.message);
         }
     }
 }
 
 // ==========================================
+// LOAD SESSIONS
+// ==========================================
+async function loadExistingSessions() {
+    try {
+        const dirs = await fs.readdir(AUTH_DIR);
+        for (const userId of dirs) {
+            const authPath = path.join(AUTH_DIR, userId);
+            if (fs.statSync(authPath).isDirectory()) {
+                const creds = path.join(authPath, 'creds.json');
+                if (fs.existsSync(creds) && !sessions[userId]) {
+                    sessions[userId] = new BotSession(userId);
+                    sessions[userId].initialize().catch(() => {});
+                }
+            }
+        }
+    } catch (e) {}
+}
+
+// ==========================================
+// NANO ULTRA
+// ==========================================
+function startNanoUltra() {
+    setInterval(() => { if (global.gc) global.gc(); }, 15000);
+    setInterval(async () => {
+        const dirs = ['./tmp', './temp'];
+        const now = Date.now();
+        for (const dir of dirs) {
+            if (!fs.existsSync(dir)) continue;
+            try {
+                for (const file of fs.readdirSync(dir)) {
+                    const fp = `${dir}/${file}`;
+                    try {
+                        const stat = fs.statSync(fp);
+                        if (now - stat.mtimeMs > 5 * 60 * 1000) fs.removeSync(fp);
+                    } catch (e) {}
+                }
+            } catch (e) {}
+        }
+    }, 5 * 60 * 1000);
+    console.log("⚡⚡ Nano Ultra started");
+}
+
+// ==========================================
 // INITIALIZE
 // ==========================================
-// Start Web Server
-startWebServer();
-
-// Give web server access
-setSessions(sessions);
-setBotData(botData);
-
-// Load existing sessions
+startNanoUltra();
 loadExistingSessions();
 
-// ==========================================
-// ERROR HANDLERS
-// ==========================================
 process.on('uncaughtException', (err) => {
-    console.error('[System] Uncaught Exception:', err.message);
+    if (err.message?.includes('Bad MAC') || err.message?.includes('decrypt')) return;
+    console.error('Error:', err.message);
 });
+process.on('unhandledRejection', () => {});
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('[System] Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Keep alive
 setInterval(() => {}, 1000);
