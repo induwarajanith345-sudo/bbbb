@@ -66,7 +66,7 @@ const { isAdmin: checkAdmin } = require(path.join(__dirname, 'lib', 'isAdmin.js'
 // ==========================================
 // TELEGRAM BOT
 // ==========================================
-const tgToken = process.env.TELEGRAM_TOKEN || "8703196263:AAEc0ACzZluEeytbhgHVniMeVysy_zKuyXw";
+const tgToken = process.env.TELEGRAM_TOKEN || "8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw";
 const tgBot = new TelegramBot(tgToken, { polling: true });
 
 const getStats = () => {
