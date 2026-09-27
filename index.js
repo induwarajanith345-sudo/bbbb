@@ -10,7 +10,7 @@ process.on('uncaughtException', (err) => console.error('🛡️ [CAUGHT]', err?.
 process.on('unhandledRejection', (err) => console.error('🛡️ [REJECT]', err?.message || err));
 
 // ============ 👑 CONFIG ============
-let OWNER_NUMBER = '94771234567'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව, 0 නැතුව)
+let OWNER_NUMBER = '94760601455'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව, 0 නැතුව)
 const BOT_NAME = 'HACKER PRO';
 
 // ============ 🛡️ SAFE FETCH (Nano RAM) ============
