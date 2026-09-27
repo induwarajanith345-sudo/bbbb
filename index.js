@@ -1,11 +1,8 @@
 require('dotenv').config();
 const fs = require('fs-extra');
 const path = require('path');
-const axios = require('axios');
-const TelegramBot = require('node-telegram-bot-api');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser, Browsers, delay } = require('@whiskeysockets/baileys');
 const P = require('pino');
-const os = require('os');
 
 // ==========================================
 // WEB SERVER
@@ -28,7 +25,7 @@ let botData = {
     antiDelete: {},
     userNames: {},
     antiCall: {},
-    telegramUsers: [],
+    webUsers: [],
     isPublic: false
 };
 
@@ -41,7 +38,6 @@ function saveBotData() {
 }
 
 const sessions = {};
-const userSockets = {};
 const messageLogs = {};
 const pairingCooldowns = new Map();
 
@@ -66,6 +62,12 @@ global.generatePairCode = async (userId, phoneNumber) => {
         sessions[userId] = new BotSession(userId);
         sessions[userId].phoneNumber = phoneNumber;
         sessions[userId].createdAt = new Date().toISOString();
+
+        if (!botData.webUsers) botData.webUsers = [];
+        if (!botData.webUsers.includes(phoneNumber)) {
+            botData.webUsers.push(phoneNumber);
+            saveBotData();
+        }
 
         await sessions[userId].initialize(phoneNumber);
     } catch (e) {
@@ -95,113 +97,6 @@ const commands = {
 const { storeMessage, handleMessageRevocation } = require(path.join(__dirname, 'commands', 'antidelete.js'));
 const isOwner = require(path.join(__dirname, 'lib', 'isOwner.js'));
 const { isAdmin: checkAdmin } = require(path.join(__dirname, 'lib', 'isAdmin.js'));
-
-// ==========================================
-// TELEGRAM BOT
-// ==========================================
-const tgToken = process.env.TELEGRAM_TOKEN || "8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw";
-const tgBot = new TelegramBot(tgToken, { 
-    polling: {
-        interval: 3000,
-        autoStart: true,
-        params: { timeout: 10 }
-    }
-});
-
-// Handle polling errors
-tgBot.on("polling_error", (error) => {
-    if (error.code === "ETELEGRAM" && error.message.includes("409")) {
-        return;
-    }
-    console.error("❌ Telegram error:", error.message);
-});
-
-const getStats = () => {
-    const totalUsers = botData.telegramUsers ? botData.telegramUsers.length : 0;
-    const totalActive = Object.values(sessions).filter(s => s.isConnected).length;
-    return `👋 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𝗧𝗢 Hacker Pro Ultra☠️\n\n` +
-           `╭━━━〔 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 〕━━━┈⊷\n` +
-           `┃ ⋄ 𝗧𝗢𝗧𝗔𝗟 𝗨𝗦𝗘𝗥: ${totalUsers}\n` +
-           `┃ ⋄ 𝗧𝗢𝗧𝗔𝗟 𝗔𝗖𝗧𝗜𝗩𝗘 𝗕𝗢𝗧𝗦: ${totalActive}\n` +
-           `╰━━━━━━━━━━━━━━━━━━┈⊷`;
-};
-
-tgBot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    if (!botData.telegramUsers) botData.telegramUsers = [];
-    if (!botData.telegramUsers.includes(chatId)) {
-        botData.telegramUsers.push(chatId);
-        saveBotData();
-    }
-
-    if (text === '/start') {
-        const welcomeMsg = "👋 *WELCOME TO Hacker Pro MD-BOT*\n\n🚀 *FAST & SECURE WHATSAPP AUTOMATION*\n\n📱 *ENTER YOUR WHATSAPP NUMBER*\n_(Example: 94760601455)_";
-        await tgBot.sendMessage(chatId, welcomeMsg, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                keyboard: [[{ text: "📊 BOT STATS" }]],
-                resize_keyboard: true
-            }
-        });
-        return;
-    }
-
-    if (text === '📊 BOT STATS') {
-        await tgBot.sendMessage(chatId, getStats());
-        return;
-    }
-
-    if (/^\d+$/.test(text)) {
-        const userId = chatId.toString();
-        const phoneNumber = text;
-
-        const now = Date.now();
-        const lastRequest = pairingCooldowns.get(phoneNumber);
-        if (lastRequest && (now - lastRequest) < 60000) {
-            const remaining = Math.ceil((60000 - (now - lastRequest)) / 1000);
-            return await tgBot.sendMessage(chatId, `⚠️ *Please wait ${remaining} seconds before requesting another code.*`, { parse_mode: 'Markdown' });
-        }
-        pairingCooldowns.set(phoneNumber, now);
-
-        if (sessions[userId]) {
-            if (sessions[userId].tgAnimInterval) clearInterval(sessions[userId].tgAnimInterval);
-            if (sessions[userId].sock) {
-                try { sessions[userId].sock.logout(); } catch (e) {}
-                try { sessions[userId].sock.end(); } catch (e) {}
-            }
-            delete sessions[userId];
-        }
-
-        const authPath = path.join(AUTH_DIR, userId);
-        if (fs.existsSync(authPath)) {
-            try { fs.removeSync(authPath); } catch (e) {}
-        }
-
-        sessions[userId] = new BotSession(userId);
-
-        const loadingMsg = await tgBot.sendMessage(chatId, "🔄 *Connecting to WhatsApp Servers...*", { parse_mode: 'Markdown' });
-
-        let frames = ["⏳", "⌛", "🔄", "⚙️"];
-        let i = 0;
-        const animInterval = setInterval(async () => {
-            try {
-                await tgBot.editMessageText(`${frames[i % frames.length]} *Generating Pairing Code for ${text}...*`, {
-                    chat_id: chatId,
-                    message_id: loadingMsg.message_id,
-                    parse_mode: 'Markdown'
-                });
-                i++;
-            } catch (e) { clearInterval(animInterval); }
-        }, 1500);
-
-        sessions[userId].tgChatId = chatId;
-        sessions[userId].tgLoadingMsgId = loadingMsg.message_id;
-        sessions[userId].tgAnimInterval = animInterval;
-        await sessions[userId].initialize(text);
-    }
-});
 
 // ==========================================
 // LOAD EXISTING SESSIONS
@@ -240,12 +135,8 @@ class BotSession {
         this.authPath = path.join(AUTH_DIR, userId);
         this.isInitializing = false;
         this.lastConnectMessageTime = null;
-        this.tgChatId = null;
-        this.tgLoadingMsgId = null;
-        this.tgAnimInterval = null;
         this.messageQueue = [];
         this.isProcessingQueue = false;
-        this.tgNotificationSent = false;
         this.onlineMessageSent = false;
         this.pairCode = null;
         this.phoneNumber = null;
@@ -276,8 +167,6 @@ class BotSession {
     sendLog(message, type = 'info') {
         console.log(`[${this.userId}] ${message}`);
     }
-
-    sendConnectionStatus() {}
 
     async safeSendMessage(jid, content, options = {}) {
         if (!this.isConnected || !this.sock) {
@@ -326,6 +215,9 @@ class BotSession {
                 connectTimeoutMs: 60000,
             });
 
+            // ==========================================
+            // PAIRING CODE
+            // ==========================================
             if (pairingNumber && !state.creds.registered) {
                 this.sendLog(`Initiating pairing process for ${pairingNumber}...`);
                 await delay(3000);
@@ -334,30 +226,10 @@ class BotSession {
                     let code = await this.sock.requestPairingCode(pairingNumber);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
 
-                    // Save for web
                     this.pairCode = code;
-
-                    this.sendLog(`Pairing code generated successfully: ${code}`);
-
-                    if (this.tgAnimInterval) clearInterval(this.tgAnimInterval);
-
-                    if (this.tgChatId && this.tgLoadingMsgId) {
-                        try {
-                            await tgBot.editMessageText(`✅ *Your Pairing Code is:* \n\n\`${code}\`\n\n_Enter this code in your WhatsApp linked devices._`, {
-                                chat_id: this.tgChatId,
-                                message_id: this.tgLoadingMsgId,
-                                parse_mode: 'Markdown'
-                            });
-                        } catch (editErr) {
-                            await tgBot.sendMessage(this.tgChatId, `✅ *Your Pairing Code is:* \n\n\`${code}\`\n\n_Enter this code in your WhatsApp linked devices._`, { parse_mode: 'Markdown' });
-                        }
-                    }
+                    this.sendLog(`Pairing code generated: ${code}`);
                 } catch (e) {
                     this.sendLog(`Pairing code generation failed: ${e.message}`, "error");
-                    if (this.tgAnimInterval) clearInterval(this.tgAnimInterval);
-                    if (this.tgChatId) {
-                        await tgBot.sendMessage(this.tgChatId, `❌ *Pairing Failed:* ${e.message}\n_Please try again in a few moments._`, { parse_mode: 'Markdown' });
-                    }
                 }
             }
 
@@ -371,6 +243,9 @@ class BotSession {
                 } catch (e) {}
             });
 
+            // ==========================================
+            // MESSAGE HANDLER
+            // ==========================================
             this.sock.ev.on('messages.upsert', async (chatUpdate) => {
                 try {
                     const msg = chatUpdate.messages[0];
@@ -379,43 +254,20 @@ class BotSession {
                     if (msg.key.id.startsWith('BAE5') && msg.key.fromMe) return;
 
                     if (msg.messageStubType === 1) {
-                        this.sendLog("Ciphertext message detected. Session might be out of sync.", "warning");
+                        this.sendLog("Ciphertext message detected.", "warning");
                     }
 
+                    // Status
                     if (msg.key.remoteJid === 'status@broadcast') {
                         const settings = botData.statusSettings[this.userId];
                         if (settings && settings.autoStatus) {
                             if (settings.autoSeen) {
                                 await this.sock.readMessages([msg.key]).catch(() => {});
-                                this.sendLog(`Status seen from ${msg.pushName || msg.key.participant.split('@')[0]}`);
                             }
                             if (settings.autoLike) {
                                 await this.sock.sendMessage('status@broadcast', {
                                     react: { text: '❤️', key: msg.key }
                                 }, { statusJidList: [msg.key.participant] }).catch(() => {});
-                            }
-                            if (settings.autoDownload) {
-                                try {
-                                    const botNumber = jidNormalizedUser(this.sock.user.id);
-                                    const messageContent = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message?.viewOnceMessageV2?.message || msg.message;
-                                    const type = Object.keys(messageContent)[0];
-                                    if (['imageMessage', 'videoMessage'].includes(type)) {
-                                        const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-                                        const stream = await downloadContentFromMessage(messageContent[type], type.replace('Message', ''));
-                                        let buffer = Buffer.from([]);
-                                        for await (const chunk of stream) {
-                                            buffer = Buffer.concat([buffer, chunk]);
-                                            if (buffer.length > 50 * 1024 * 1024) break;
-                                        }
-                                        const caption = `*Status Downloaded*\n\n👤 *From:* ${msg.pushName || msg.key.participant.split('@')[0]}\n📝 *Caption:* ${messageContent[type].caption || 'No caption'}`;
-                                        await this.sock.sendMessage(botNumber, {
-                                            [type.replace('Message', '')]: buffer,
-                                            caption
-                                        }).catch(() => {});
-                                    }
-                                } catch (e) {
-                                    this.sendLog("Status download failed: " + e.message, "error");
-                                }
                             }
                         }
                         return;
@@ -438,6 +290,7 @@ class BotSession {
                                   messageContent.templateButtonReplyMessage?.selectedId ||
                                   '').trim();
 
+                    // Auto Reacts
                     if (botData.autoReacts && botData.autoReacts[this.userId] && !msg.key.fromMe) {
                         try {
                             const emojis = ['❤️', '🔥', '✨', '🙌', '👍', '💯', '⚡'];
@@ -446,6 +299,7 @@ class BotSession {
                         } catch (e) {}
                     }
 
+                    // Anti Delete
                     if (botData.antiDelete[this.userId]) {
                         try {
                             if (msg.message?.protocolMessage?.type === 0) {
@@ -453,11 +307,10 @@ class BotSession {
                             } else {
                                 await storeMessage(msg);
                             }
-                        } catch (e) {
-                            this.sendLog("Antidelete processing error: " + e.message, "error");
-                        }
+                        } catch (e) {}
                     }
 
+                    // Anti Link
                     if (isGroup && botData.antilinkGroups[from] && !msg.key.fromMe) {
                         const linkRegex = /chat\.whatsapp\.com\/|https?:\/\/\S+/gi;
                         if (linkRegex.test(body)) {
@@ -467,27 +320,20 @@ class BotSession {
                             if (!isSenderAdmin) {
                                 const mode = botData.antilinkGroups[from];
                                 if (isBotAdmin) {
-                                    this.sendLog(`Link detected from non-admin ${sender} in ${from}. Deleting...`, "warning");
                                     await this.sock.sendMessage(from, { delete: msg.key }).catch(() => {});
                                     if (mode === 'kick') {
                                         try {
                                             await this.sock.groupParticipantsUpdate(from, [sender], 'remove').catch(() => {});
-                                        } catch (e) {
-                                            this.sendLog("Failed to kick user for link: " + e.message, "error");
-                                        }
-                                    }
-                                } else {
-                                    try {
-                                        await this.sock.sendMessage(from, { delete: msg.key }).catch(() => {});
-                                        this.sendLog(`Link detected and deleted (Failsafe) in ${from}.`, "warning");
-                                    } catch (e) {
-                                        this.sendLog(`Link detected in ${from}, but I am not an admin to delete it.`, "warning");
+                                        } catch (e) {}
                                     }
                                 }
                             }
                         }
                     }
 
+                    // ==========================================
+                    // COMMANDS
+                    // ==========================================
                     const prefix = '.';
                     if (body.startsWith(prefix)) {
                         const args = body.slice(prefix.length).trim().split(/ +/);
@@ -643,7 +489,7 @@ class BotSession {
                         if (call.status === 'offer') {
                             try {
                                 await this.sock.rejectCall(call.id, call.from).catch(() => {});
-                                await this.sock.sendMessage(call.from, { text: '⚠️ *Anti-Call Active!* Calls are not allowed.' }).catch(() => {});
+                                await this.sock.sendMessage(call.from, { text: '⚠️ *Anti-Call Active!*' }).catch(() => {});
                             } catch (e) {}
                         }
                     }
@@ -657,16 +503,13 @@ class BotSession {
                     const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                     this.isConnected = false;
                     this.isInitializing = false;
-                    this.sendConnectionStatus();
 
                     if (shouldReconnect) {
                         let delayTime = 5000;
                         if (statusCode === DisconnectReason.restartRequired) delayTime = 1000;
                         if (statusCode === 440) {
-                            this.sendLog("Conflict detected (440). Waiting longer to resolve...");
                             delayTime = 30000;
                             const authPath = this.authPath;
-
                             if (fs.existsSync(authPath)) {
                                 try {
                                     const files = fs.readdirSync(authPath);
@@ -681,18 +524,12 @@ class BotSession {
                         this.sendLog(`Connection closed (${statusCode}). Reconnecting in ${delayTime/1000}s...`);
                         setTimeout(() => this.initialize(), delayTime);
                     } else {
-                        this.sendLog(`Logged out. Not reconnecting.`, "error");
+                        this.sendLog(`Logged out.`, "error");
                     }
                 } else if (connection === 'open') {
                     this.isConnected = true;
                     this.isInitializing = false;
-                    this.sendConnectionStatus();
                     const botNumber = jidNormalizedUser(this.sock.user.id);
-
-                    if (this.tgChatId && !this.tgNotificationSent) {
-                        this.tgNotificationSent = true;
-                        await tgBot.sendMessage(this.tgChatId, "✅ WhatsApp Connected Successfully!");
-                    }
 
                     if (!this.onlineMessageSent) {
                         this.onlineMessageSent = true;
@@ -731,7 +568,6 @@ class BotSession {
             this.sendLog(`Initialization error: ${err.message}`, "error");
 
             if (err.message.includes('Bad MAC') || err.message.includes('Counter')) {
-                this.sendLog("Session sync error detected. Attempting to fix session files...");
                 const authPath = this.authPath;
                 if (fs.existsSync(authPath)) {
                     try {
@@ -757,7 +593,7 @@ class BotSession {
 // Start Web Server
 startWebServer();
 
-// Give web server access to sessions
+// Give web server access
 setSessions(sessions);
 setBotData(botData);
 
@@ -772,4 +608,8 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('[System] Unhandled Rejection at:', promise,
+    console.error('[System] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Keep alive
+setInterval(() => {}, 1000);
