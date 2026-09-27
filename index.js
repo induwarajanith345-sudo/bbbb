@@ -6,7 +6,16 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const express = require('express');
 const QRCode = require('qrcode');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser, Browsers, delay } = require('@whiskeysockets/baileys');
+const { 
+    default: makeWASocket, 
+    useMultiFileAuthState, 
+    DisconnectReason, 
+    fetchLatestBaileysVersion, 
+    makeCacheableSignalKeyStore, 
+    jidNormalizedUser, 
+    Browsers, 
+    delay 
+} = require('@whiskeysockets/baileys');
 const P = require('pino');
 
 const AUTH_DIR = './sessions';
@@ -25,7 +34,11 @@ let botData = {
 };
 
 if (fs.existsSync(DATA_FILE)) {
-    try { botData = fs.readJsonSync(DATA_FILE); } catch (e) {}
+    try { 
+        botData = { ...botData, ...fs.readJsonSync(DATA_FILE) }; 
+    } catch (e) {
+        console.error("Error loading bot_data.json:", e);
+    }
 }
 if (!botData.owners) botData.owners = [];
 
@@ -367,7 +380,9 @@ register('ytmp4', ['ytv'], async (ctx) => {
     } catch (e) {
         await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: status.key });
     }
-}, { public: true });// ========== AI ==========
+}, { public: true });
+
+// ========== AI ==========
 register('ai', ['gpt', 'chat'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args.length) return await sock.sendMessage(from, { text: '🤖 Usage: .ai <question>' }, { quoted: msg });
@@ -450,7 +465,7 @@ register('cinesubz', ['csub'], async (ctx) => {
             if (i >= 5) return;
             const title = $(el).find('h2.entry-title a, h2 a').first().text().trim();
             const link = $(el).find('h2.entry-title a, h2 a').first().attr('href');
-            const img = $(el).find('img').attr('src') || $(el).find('img').attr('data-src');
+            const img = $(el).find('img').attr('src') \vert{}\vert{}$(el).find('img').attr('data-src');
             if (title && link) results.push({ title, link, img });
         });
 
@@ -482,7 +497,7 @@ register('animeclub2', ['aclub2'], async (ctx) => {
             if (i >= 5) return;
             const title = $(el).find('h2 a, h3 a, .entry-title a').first().text().trim();
             const link = $(el).find('h2 a, h3 a, .entry-title a').first().attr('href');
-            const img = $(el).find('img').attr('src') || $(el).find('img').attr('data-src');
+            const img = $(el).find('img').attr('src') \vert{}\vert{}$(el).find('img').attr('data-src');
             if (title && link) results.push({ title, link, img });
         });
 
@@ -579,9 +594,17 @@ register('tiktok', ['tt'], async (ctx) => {
     const status = await sock.sendMessage(from, { text: '⬇️ Downloading...' }, { quoted: msg });
 
     try {
-        const res = await axios.get(`https://www.tikwm.com/api/?url=${args[0]}`, { timeout: 30000 });
-        const d = res.data.data;
-        if (!d) return await sock.sendMessage(from, { text: '❌ Failed!', edit: status.key });
+        const res = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(args[0])}`, { timeout: 30000 });
+        const d = res.data?.data;
+        if (!d) return await sock.sendMessage(from, { text: '❌ Failed to fetch TikTok video!', edit: status.key });
+
         await sock.sendMessage(from, {
             video: { url: d.play },
-            caption: `🎵 *TikTok*\n👤 ${d
+            caption: `🎵 *TikTok Video*\n👤 Author: ${d.author?.nickname || 'N/A'}\n📝 Title: ${d.title || 'No Title'}\n\n> POWERED BY HACKER PRO TEAM`
+        }, { quoted: msg });
+
+        await sock.sendMessage(from, { delete: status.key }).catch(() => {});
+    } catch (e) {
+        await sock.sendMessage(from, { text: `❌ Error: ${e.message}`, edit: status.key });
+    }
+}, { public: true });
