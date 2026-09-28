@@ -10,7 +10,7 @@ process.on('uncaughtException', (err) => console.error('🛡️ [CAUGHT]', err?.
 process.on('unhandledRejection', (err) => console.error('🛡️ [REJECT]', err?.message || err));
 
 // ============ 👑 CONFIG ============
-let OWNER_NUMBER = '94760601455'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව, 0 නැතුව)
+let OWNER_NUMBER = '94760601455'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව)
 const BOT_NAME = 'HACKER PRO';
 
 // ============ 🛡️ SAFE FETCH (Nano RAM) ============
@@ -55,7 +55,7 @@ function pickUrl(o) {
     return null;
 }
 
-// yt-dlp ONLY (FB/IG/TT — YT APIs වලට යන්නෙ නෑ)
+// yt-dlp ONLY (FB/IG/TT සඳහා — YT APIs වලට යන්නෙ නෑ)
 function ytdlpOnly(url, mode = 'video') {
     return new Promise((resolve) => {
         const fmt = mode === 'audio'
@@ -588,7 +588,7 @@ register('gc', ['ram', 'clearcache'], async (ctx) => {
 }, { public: false });
 
 // =======================================================
-// 21. 🔄 UPDATE (FIXED — Proper Error Handling)
+// 21. 🔄 UPDATE (FIXED)
 // =======================================================
 register('update', ['up'], async (ctx) => {
     const { sock, from, msg } = ctx;
@@ -610,55 +610,43 @@ register('update', ['up'], async (ctx) => {
     });
 
     try {
-        // 1. Git install තියෙනවද?
         const gitCheck = await run('git --version');
         if (!gitCheck.ok) {
             return await sock.sendMessage(from, {
-                text: `❌ *Git install කරලා නෑ!*\n\n` +
-                      `📦 Install:\n\`\`\`\nTermux: pkg install git\nUbuntu: sudo apt install git\n\`\`\`\n\n> ${BOT_NAME}`,
+                text: `❌ *Git install කරලා නෑ!*\n\n📦 Install:\n\`\`\`\nTermux: pkg install git\nUbuntu: sudo apt install git\n\`\`\`\n\n> ${BOT_NAME}`,
                 edit: s.key
             });
         }
 
-        // 2. Git repo එකක්ද?
         const repoCheck = await run('git rev-parse --is-inside-work-tree');
         if (!repoCheck.ok || repoCheck.stdout !== 'true') {
             return await sock.sendMessage(from, {
-                text: `❌ *Git repository එකක් නෙමෙයි!*\n\n` +
-                      `📁 Folder: ${process.cwd()}\n\n` +
-                      `💡 *Fix:*\n\`\`\`\ngit init\ngit remote add origin <YOUR_GITHUB_URL>\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
+                text: `❌ *Git repository එකක් නෙමෙයි!*\n\n📁 Folder: ${process.cwd()}\n\n💡 *Fix:*\n\`\`\`\ngit init\ngit remote add origin <YOUR_GITHUB_URL>\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
                 edit: s.key
             });
         }
 
-        // 3. Remote set කරලා තියෙනවද?
         const remoteCheck = await run('git remote -v');
         if (!remoteCheck.stdout || !remoteCheck.stdout.includes('origin')) {
             return await sock.sendMessage(from, {
-                text: `❌ *Remote (origin) set කරලා නෑ!*\n\n` +
-                      `💡 *Fix:*\n\`\`\`\ngit remote add origin <YOUR_GITHUB_URL>\n\`\`\`\n\n> ${BOT_NAME}`,
+                text: `❌ *Remote (origin) set කරලා නෑ!*\n\n💡 *Fix:*\n\`\`\`\ngit remote add origin <YOUR_GITHUB_URL>\n\`\`\`\n\n> ${BOT_NAME}`,
                 edit: s.key
             });
         }
 
-        // 4. Local changes? → stash
         const statusCheck = await run('git status --porcelain');
         if (statusCheck.stdout) {
             await sock.sendMessage(from, { text: '⚠️ Local changes — stash කරනවා...', edit: s.key });
             await run('git stash');
         }
 
-        // 5. Pull
         await sock.sendMessage(from, { text: '🔄 Pulling from GitHub...', edit: s.key });
         const pull = await run('git pull 2>&1', 60000);
         const out = (pull.stdout + '\n' + pull.stderr).trim();
 
-        // 6. Result
         if (!pull.ok || /fatal|error|conflict/i.test(out)) {
             return await sock.sendMessage(from, {
-                text: `❌ *Update Failed!*\n\n` +
-                      `📋 Details:\n\`\`\`\n${out.slice(0, 800)}\n\`\`\`\n\n` +
-                      `💡 *Manual fix:*\n\`\`\`\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
+                text: `❌ *Update Failed!*\n\n📋 Details:\n\`\`\`\n${out.slice(0, 800)}\n\`\`\`\n\n💡 *Manual fix:*\n\`\`\`\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
                 edit: s.key
             });
         }
@@ -671,9 +659,7 @@ register('update', ['up'], async (ctx) => {
         }
 
         await sock.sendMessage(from, {
-            text: `✅ *Update Successful!*\n\n` +
-                  `📋 Changes:\n\`\`\`\n${out.slice(0, 1000)}\n\`\`\`\n\n` +
-                  `🔄 Restart: *.restart*\n\n> ${BOT_NAME}`,
+            text: `✅ *Update Successful!*\n\n📋 Changes:\n\`\`\`\n${out.slice(0, 1000)}\n\`\`\`\n\n🔄 Restart: *.restart*\n\n> ${BOT_NAME}`,
             edit: s.key
         });
 
@@ -683,51 +669,4 @@ register('update', ['up'], async (ctx) => {
             edit: s.key
         });
     }
-}, { public: false });
-
-// =======================================================
-// 22. 🔄 RESTART (owner)
-// =======================================================
-register('restart', ['reboot', 'rs'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
-    await sock.sendMessage(from, { text: `🔄 Restarting in 5s...` }, { quoted: msg });
-    setTimeout(() => process.exit(0), 5000);
-}, { public: false });
-
-// =======================================================
-// 23. 📋 MENU
-// =======================================================
-register('menu', ['help', 'commands'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-    const text = `🔥 *${BOT_NAME} — Menu*\n\n` +
-        `*📥 Downloads*\n` +
-        `.ytmp3 / .song — YouTube Audio\n` +
-        `.ytmp4 / .video — YouTube Video\n` +
-        `.fb — Facebook\n` +
-        `.tt — TikTok (no watermark)\n` +
-        `.ig — Instagram\n\n` +
-        `*🤖 AI & Tools*\n` +
-        `.ai / .gpt — AI Chat\n` +
-        `.imagine — AI Image Gen\n` +
-        `.weather — Weather Info\n` +
-        `.meme — Random Meme\n` +
-        `.joke — Random Joke\n` +
-        `.quote — Random Quote\n` +
-        `.lyrics — Song Lyrics\n` +
-        `.translate / .tr — Translate\n` +
-        `.wiki — Wikipedia\n\n` +
-        `*👑 Owner*\n` +
-        `.owner — Owner contact\n` +
-        `.broad — Broadcast (groups)\n` +
-        `.chreact — Channel react\n` +
-        `.update — Git pull\n` +
-        `.restart — Restart Bot\n` +
-        `.gc — Clear RAM\n\n` +
-        `*ℹ️ Info*\n` +
-        `.settings — Bot info\n` +
-        `.ping — Speed test\n` +
-        `.menu — This menu\n\n` +
-        `> POWERED BY ${BOT_NAME}`;
-    await sock.sendMessage(from, { text }, { quoted: msg });
-}, { public: true });
+}, { public: false
