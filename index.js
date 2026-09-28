@@ -88,22 +88,53 @@ let latestQR = null;
 let isSocketReady = false;
 const logger = pino({ level: 'silent' });
 
-async function startSock() {
-    if (fs.existsSync('./auth_info') && !fs.existsSync('./auth_info/.paired')) {
-        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared old auth_info'); } catch {}
+async function startSock() \async function startSock(phoneForPair = null) {
+    if (sock) { try { sock.end(undefined); } catch {} sock = null; }
+    
+    if (phoneForPair) {
+        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info for pair code'); } catch {}
     }
+    
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
     const { version } = await fetchLatestBaileysVersion();
-    sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false, browser: ['Hacker Pro', 'Chrome', '1.0'] });
+    
+    sock = makeWASocket({
+        version,
+        auth: state,
+        logger,
+        printQRInTerminal: false,
+        browser: ['Hacker Pro', 'Chrome', '1.0'],
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: false
+    });
+    
     sock.ev.on('creds.update', saveCreds);
-
+    
     sock.ev.on('connection.update', async (u) => {
         const { connection, lastDisconnect, qr } = u;
+        
         if (connection === 'connecting') {
             isSocketReady = true;
-            console.log('📡 Socket ready for pairing requests.');
+            console.log('📡 Socket connecting...');
+            
+            if (phoneForPair && pairCodeResolver) {
+                try {
+                    await new Promise(r => setTimeout(r, 2000));
+                    const code = await sock.requestPairingCode(phoneForPair);
+                    console.log(`🎟️ Pair code: ${code}`);
+                    pairCodeResolver.resolve(code);
+                    pairCodeResolver = null;
+                } catch (e) {
+                    console.error('❌ Pair code error:', e.message);
+                    if (pairCodeResolver) {
+                        pairCodeResolver.reject(e);
+                        pairCodeResolver = null;
+                    }
+                }
+            }
         }
-        if (qr) {
+        
+        if (qr && !phoneForPair) {
             latestQR = qr;
             isSocketReady = true;
             console.log('📱 QR received');
@@ -115,20 +146,27 @@ async function startSock() {
                 }
             } catch {}
         }
+        
         if (connection === 'open') {
             console.log('✅ WhatsApp connected!');
             isSocketReady = true;
             try { fs.writeFileSync('./auth_info/.paired', '1'); } catch {}
             for (const [uid, data] of qrStore) { data.status = 'connected'; }
         }
+        
         if (connection === 'close') {
             isSocketReady = false;
             const code = lastDisconnect?.error?.output?.statusCode;
-            if (code !== DisconnectReason.loggedOut) { console.log('🔄 Reconnecting...'); setTimeout(startSock, 3000); }
-            else { console.log('🚪 Logged out'); try { fs.removeSync('./auth_info'); } catch {} }
+            if (code !== DisconnectReason.loggedOut) {
+                console.log('🔄 Reconnecting...');
+                setTimeout(() => startSock(), 3000);
+            } else {
+                console.log('🚪 Logged out');
+                try { fs.removeSync('./auth_info'); } catch {}
+            }
         }
     });
-
+    
     sock.ev.on('messages.upsert', async ({ messages }) => {
         try {
             const msg = messages[0];
@@ -143,6 +181,8 @@ async function startSock() {
         } catch (e) { console.error('❌ Msg error:', e.message); }
     });
 }
+
+let pairCodeResolver = null;
 
 // ============ EXPRESS WEB SERVER ============
 const app = express();
@@ -181,7 +221,7 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 .iw input{width:100%;padding:16px 16px 16px 48px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;color:#fff;font-size:16px;outline:none;font-family:monospace;letter-spacing:1px}
 .iw input:focus{border-color:#00d2ff;box-shadow:0 0 0 4px rgba(0,210,255,.1)}
 .ii{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:18px;opacity:.5}
-.gb{width:100%;padding:16px;margin-top:16px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:14px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:all .3s}
+.gb{width:100%;padding:16px;margin-top:16px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:14px;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
 .gb:hover:not(:disabled){transform:translateY(-2px)}
 .gb:disabled{opacity:.6;cursor:not-allowed}
 .cb{margin-top:24px;padding:24px;background:linear-gradient(135deg,rgba(0,210,255,.08),rgba(58,123,213,.08));border:2px solid rgba(0,210,255,.3);border-radius:16px;text-align:center;display:none}
@@ -231,7 +271,7 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 <div id="qrSection" style="display:none">
 <div class="qrb">
 <div class="cl">Scan QR Code</div>
-<div class="qrc"><img id="qrImg" src="" alt="QR" onerror="this.style.display='none'"></div>
+<div class="qrc"><img id="qrImg" src="" alt="QR"></div>
 <div style="font-size:13px;color:#9ca3af;margin-top:8px">WhatsApp → Linked Devices → Link a Device</div>
 <button class="gb" onclick="generateQR()" style="margin-top:16px">🔄 Refresh QR</button>
 <div id="qrStatus" style="font-size:12px;color:#9ca3af;margin-top:10px"></div>
@@ -326,27 +366,36 @@ setInterval(checkStatus, 10000);
 </body>
 </html>`;
 
-// Serve HTML
 app.get('/', (req, res) => res.send(HTML));
-
-// API - Status
 app.get('/api/status', (req, res) => res.json({ online: !!sock?.user, ready: isSocketReady, activeBots: 1, totalUsers: 1 }));
 
-// API - Pair Code
+// API - Pair Code (FIXED)
 app.post('/api/pair', async (req, res) => {
     try {
         const { phone } = req.body;
-        if (!phone) return res.json({ success: false, error: 'Phone required' });
-        if (!sock) return res.json({ success: false, error: 'Bot not ready' });
-        if (!isSocketReady) return res.json({ success: false, error: 'Socket not ready. Try again.' });
+        if (!phone) return res.json({ success: false, error: 'Phone number එකක් දෙන්න!' });
         const clean = phone.replace(/[^0-9]/g, '');
+        if (clean.length < 10) return res.json({ success: false, error: 'Valid number එකක් දෙන්න (country code එක්ක)!' });
+        console.log(`🎟️ Pair request for: ${clean}`);
+        
+        const codePromise = new Promise((resolve, reject) => {
+            pairCodeResolver = { resolve, reject };
+            setTimeout(() => {
+                if (pairCodeResolver) {
+                    pairCodeResolver.reject(new Error('Timeout — 20s ඇතුලත code එක ආවේ නෑ'));
+                    pairCodeResolver = null;
+                }
+            }, 20000);
+        });
+        
+        await startSock(clean);
+        const code = await codePromise;
         currentUserId = Date.now().toString();
-        const code = await sock.requestPairingCode(clean);
         currentCode = code;
-        console.log(`🎟️ Pair code for ${clean}: ${code}`);
         res.json({ success: true, userId: currentUserId, code });
     } catch (e) {
-        console.error('❌ Pair error:', e.message);
+        console.error('❌ Pair endpoint error:', e.message);
+        pairCodeResolver = null;
         res.json({ success: false, error: e.message });
     }
 });
@@ -377,7 +426,6 @@ app.get('/api/qr/:userId', (req, res) => {
     } else res.json({ status: 'pending' });
 });
 
-// API - Logout
 app.post('/api/logout', async (req, res) => {
     try { if (sock) await sock.logout(); res.json({ success: true }); }
     catch (e) { res.json({ success: false, error: e.message }); }
