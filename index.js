@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — QR + Pair Code
+// 🔥 HACKER PRO ULTRA — FULL FIXED (QR + Pair)
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -7,33 +7,94 @@ const QRCode = require('qrcode');
 const { exec } = require('child_process');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
+// ============ SETTINGS ============
 let settings = { ownerNumber: '94760601455', botName: 'Hacker Pro Md' };
 try { settings = { ...settings, ...require('./settings.js') }; console.log('✅ settings loaded'); } catch {}
 let OWNER_NUMBER = settings.ownerNumber;
 const BOT_NAME = settings.botName;
 
+// ============ ERROR HANDLERS ============
 process.on('uncaughtException', (e) => console.error('🛡️', e?.message || e));
 process.on('unhandledRejection', (e) => console.error('🛡️', e?.message || e));
 
+// ============ RAM MONITOR ============
 const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
+setInterval(() => { if (global.gc) global.gc(); }, 60000);
 console.log(`💾 [RAM START] ${getRAM()} MB`);
 
-async function safeJson(url) { try { const c = new AbortController(); const t = setTimeout(() => c.abort(), 25000); const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: c.signal }); clearTimeout(t); if (!r.ok) return null; const txt = await r.text(); try { return JSON.parse(txt); } catch { return null; } } catch { return null; } }
+// ============ HELPERS ============
+async function safeJson(url) {
+    try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 25000);
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: c.signal });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        const txt = await r.text();
+        try { return JSON.parse(txt); } catch { return null; }
+    } catch { return null; }
+}
 
 const isOwner = (ctx) => ctx.msg?.key?.fromMe || (ctx.from || '').split('@')[0].split(':')[0] === OWNER_NUMBER;
 
-const pickUrl = (o) => { if (!o) return null; for (const x of [o?.result?.download?.url, o?.result?.url, o?.result?.dl, o?.data?.url, o?.data?.dl, o?.download?.url, o?.url, o?.link]) { if (typeof x === 'string' && x.startsWith('http')) return x; if (x?.url && typeof x.url === 'string') return x.url; } return null; };
+const pickUrl = (o) => {
+    if (!o) return null;
+    for (const x of [o?.result?.download?.url, o?.result?.url, o?.result?.dl, o?.data?.url, o?.data?.dl, o?.download?.url, o?.url, o?.link]) {
+        if (typeof x === 'string' && x.startsWith('http')) return x;
+        if (x?.url && typeof x.url === 'string') return x.url;
+    }
+    return null;
+};
 
-const ytdlp = (url, mode = 'video') => new Promise((res) => { const fmt = mode === 'audio' ? 'bestaudio[ext=m4a]/bestaudio/best' : 'bv*[ext=mp4]+ba[ext=m4a]/b'; exec(`yt-dlp -g -f "${fmt}" --no-playlist --no-warnings "${url}"`, { timeout: 90000, maxBuffer: 5e6 }, (e, out) => { if (e || !out) return res(null); res(out.split('\n').map(s => s.trim()).find(s => s.startsWith('http')) || null); }); });
+const ytdlp = (url, mode = 'video') => new Promise((res) => {
+    const fmt = mode === 'audio' ? 'bestaudio[ext=m4a]/bestaudio/best' : 'bv*[ext=mp4]+ba[ext=m4a]/b';
+    exec(`yt-dlp -g -f "${fmt}" --no-playlist --no-warnings "${url}"`, { timeout: 90000, maxBuffer: 5e6 }, (e, out) => {
+        if (e || !out) return res(null);
+        res(out.split('\n').map(s => s.trim()).find(s => s.startsWith('http')) || null);
+    });
+});
 
-async function ytSearch(q) { for (const a of [`https://api.vreden.my.id/api/ytsearch?query=${encodeURIComponent(q)}`, `https://api.zenkey.my.id/search/youtube?q=${encodeURIComponent(q)}`]) { const r = await safeJson(a); const it = r?.result?.[0] || r?.data?.[0]; if (it) { const url = it.url || it.link || (it.videoId ? `https://youtu.be/${it.videoId}` : null); if (url) return { url, title: it.title || 'media' }; } } return null; }
+async function ytSearch(q) {
+    for (const a of [
+        `https://api.vreden.my.id/api/ytsearch?query=${encodeURIComponent(q)}`,
+        `https://api.zenkey.my.id/search/youtube?q=${encodeURIComponent(q)}`
+    ]) {
+        const r = await safeJson(a);
+        const it = r?.result?.[0] || r?.data?.[0];
+        if (it) {
+            const url = it.url || it.link || (it.videoId ? `https://youtu.be/${it.videoId}` : null);
+            if (url) return { url, title: it.title || 'media' };
+        }
+    }
+    return null;
+}
 
-async function ytDownload(url, mode) { const apis = mode === 'audio' ? [`https://api.vreden.my.id/api/ytmp3?url=${encodeURIComponent(url)}`, `https://api.zenkey.my.id/download/ytmp3?url=${encodeURIComponent(url)}`] : [`https://api.vreden.my.id/api/ytmp4?url=${encodeURIComponent(url)}`, `https://api.zenkey.my.id/download/ytmp4?url=${encodeURIComponent(url)}`]; for (const a of apis) { const r = await safeJson(a); const u = pickUrl(r); if (u) return u; } return await ytdlp(url, mode); }
+async function ytDownload(url, mode) {
+    const apis = mode === 'audio' ? [
+        `https://api.vreden.my.id/api/ytmp3?url=${encodeURIComponent(url)}`,
+        `https://api.zenkey.my.id/download/ytmp3?url=${encodeURIComponent(url)}`
+    ] : [
+        `https://api.vreden.my.id/api/ytmp4?url=${encodeURIComponent(url)}`,
+        `https://api.zenkey.my.id/download/ytmp4?url=${encodeURIComponent(url)}`
+    ];
+    for (const a of apis) {
+        const r = await safeJson(a);
+        const u = pickUrl(r);
+        if (u) return u;
+    }
+    return await ytdlp(url, mode);
+}
 
-const COMMANDS = new Map(); const ALIASES = new Map();
-function register(name, aliases, handler, opts = {}) { COMMANDS.set(name, { handler, opts }); (aliases || []).forEach(a => ALIASES.set(a, name)); }
+// ============ COMMAND SYSTEM ============
+const COMMANDS = new Map();
+const ALIASES = new Map();
+function register(name, aliases, handler, opts = {}) {
+    COMMANDS.set(name, { handler, opts });
+    (aliases || []).forEach(a => ALIASES.set(a, name));
+}
 console.log('📋 Registering commands...');
 
+// ============ COMMANDS ============
 register('ytmp3', ['yta', 'song'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎵 .ytmp3 <name>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let url = args.join(' '), title = 'audio'; if (!url.includes('youtu')) { const r = await ytSearch(url); if (!r) throw new Error('නෑ!'); url = r.url; title = r.title; } const dl = await ytDownload(url, 'audio'); if (!dl) throw new Error('Fail!'); await sock.sendMessage(from, { audio: { url: dl }, mimetype: 'audio/mpeg', fileName: `${title}.mp3`, ptt: false }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 
 register('ytmp4', ['ytv', 'video'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎬 .ytmp4 <name>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let url = args.join(' '), title = 'video'; if (!url.includes('youtu')) { const r = await ytSearch(url); if (!r) throw new Error('නෑ!'); url = r.url; title = r.title; } const dl = await ytDownload(url, 'video'); if (!dl) throw new Error('Fail!'); await sock.sendMessage(from, { document: { url: dl }, mimetype: 'video/mp4', fileName: `${title}.mp4`, caption: `> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
@@ -76,118 +137,156 @@ register('menu', ['help'], async (c) => { const { sock, from, msg } = c; await s
 
 console.log(`✅ ${COMMANDS.size} commands registered\n`);
 
-// ============ BAILEYS WITH BOTH QR + PAIR ============
+// =======================================================
+// 🚀 BAILEYS — FIXED VERSION (No infinite loop!)
+// =======================================================
 let sock = null;
 let latestQR = null;
 let isConnected = false;
-let isSocketReady = false;
-let pairCode = null;
-let pairPhone = null;
+let isStarting = false;
 let qrClients = new Set();
+let pairMode = false;          // ✅ Track pair mode
+let pairPhone = null;           // ✅ Track pair phone
+let pairingCode = null;         // ✅ Store generated code
+let pairingResolve = null;      // ✅ Promise resolver
+let reconnectTimer = null;      // ✅ Prevent multiple reconnects
 const logger = pino({ level: 'silent' });
 
-async function startSock(usePairMode = false, phoneForPair = null) {
-    // Clear auth_info ONLY if user requested a fresh start
-    if (usePairMode && phoneForPair) {
-        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info for pair mode'); } catch {}
+// ✅ FIX: Do NOT clear auth_info on every reconnect!
+// Only clear when explicitly requested via /api/reset
+
+async function startSock(usePair = false, phone = null) {
+    if (isStarting) {
+        console.log('⚠️ Socket already starting, skipping...');
+        return;
     }
+    isStarting = true;
     
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
-    const { version } = await fetchLatestBaileysVersion();
-    
-    sock = makeWASocket({
-        version,
-        auth: state,
-        logger,
-        printQRInTerminal: false,
-        browser: ['Hacker Pro', 'Chrome', '1.0'],
-        syncFullHistory: false,
-        generateHighQualityLinkPreview: false
-    });
-    
-    sock.ev.on('creds.update', saveCreds);
-    
-    sock.ev.on('connection.update', async (u) => {
-        const { connection, lastDisconnect, qr } = u;
+    try {
+        // Close existing socket gracefully
+        if (sock) {
+            try { sock.end(undefined); } catch {}
+            sock = null;
+        }
         
-        // Socket is connecting
-        if (connection === 'connecting') {
-            isSocketReady = true;
-            console.log('📡 Socket connecting...');
+        // Clear reconnect timer
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        
+        const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
+        const { version } = await fetchLatestBaileysVersion();
+        
+        console.log(`📡 Starting socket (pair mode: ${usePair})`);
+        
+        sock = makeWASocket({
+            version,
+            auth: state,
+            logger,
+            printQRInTerminal: false,
+            browser: ['Hacker Pro', 'Chrome', '1.0'],
+            syncFullHistory: false,
+            generateHighQualityLinkPreview: false,
+            markOnlineOnConnect: false
+        });
+        
+        sock.ev.on('creds.update', saveCreds);
+        
+        sock.ev.on('connection.update', async (u) => {
+            const { connection, lastDisconnect, qr } = u;
             
-            // If pair mode, request pairing code NOW
-            if (usePairMode && phoneForPair && !pairCode) {
+            // Socket connecting — request pair code if in pair mode
+            if (connection === 'connecting') {
+                console.log('📡 Socket connecting...');
+                isStarting = false;
+                
+                if (usePair && phone && !pairingCode) {
+                    try {
+                        await new Promise(r => setTimeout(r, 2500));
+                        const code = await sock.requestPairingCode(phone);
+                        pairingCode = code;
+                        console.log(`🎟️ Pair code for ${phone}: ${code}`);
+                        if (pairingResolve) { pairingResolve(code); pairingResolve = null; }
+                    } catch (e) {
+                        console.error('❌ Pair code error:', e.message);
+                        if (pairingResolve) { pairingResolve(null); pairingResolve = null; }
+                    }
+                }
+            }
+            
+            // QR received — only in QR mode
+            if (qr && !usePair) {
+                latestQR = qr;
+                console.log('📱 QR received');
                 try {
-                    await new Promise(r => setTimeout(r, 2000));
-                    const code = await sock.requestPairingCode(phoneForPair);
-                    pairCode = code;
-                    pairPhone = phoneForPair;
-                    console.log(`🎟️ Pair code for ${phoneForPair}: ${code}`);
-                } catch (e) {
-                    console.error('❌ Pair code error:', e.message);
-                    pairCode = null;
-                }
+                    const dataUrl = await QRCode.toDataURL(qr, { width: 300 });
+                    for (const res of qrClients) {
+                        try { res.write(`data: ${JSON.stringify({ qr: dataUrl })}\n\n`); } catch {}
+                    }
+                } catch {}
             }
-        }
-        
-        // QR received (only if not in pair mode)
-        if (qr && !usePairMode) {
-            latestQR = qr;
-            isSocketReady = true;
-            console.log('📱 QR received');
-            try {
-                const dataUrl = await QRCode.toDataURL(qr, { width: 300 });
+            
+            // Connected!
+            if (connection === 'open') {
+                console.log('✅ WhatsApp connected!');
+                isConnected = true;
+                isStarting = false;
+                latestQR = null;
+                pairingCode = null;
+                pairMode = false;
+                pairPhone = null;
                 for (const res of qrClients) {
-                    try { res.write(`data: ${JSON.stringify({ qr: dataUrl })}\n\n`); } catch {}
+                    try { res.write(`data: ${JSON.stringify({ connected: true })}\n\n`); res.end(); } catch {}
                 }
-            } catch {}
-        }
-        
-        // Connected!
-        if (connection === 'open') {
-            console.log('✅ WhatsApp connected!');
-            isConnected = true;
-            latestQR = null;
-            pairCode = null;
-            pairPhone = null;
-            try { fs.writeFileSync('./auth_info/.paired', '1'); } catch {}
-            for (const res of qrClients) {
-                try { res.write(`data: ${JSON.stringify({ connected: true })}\n\n`); res.end(); } catch {}
+                qrClients.clear();
             }
-            qrClients.clear();
-        }
-        
-        // Disconnected
-        if (connection === 'close') {
-            isConnected = false;
-            isSocketReady = false;
-            const code = lastDisconnect?.error?.output?.statusCode;
-            if (code !== DisconnectReason.loggedOut) {
-                console.log('🔄 Reconnecting...');
-                setTimeout(() => startSock(false), 3000);
-            } else {
-                console.log('🚪 Logged out');
-                try { fs.removeSync('./auth_info'); } catch {}
+            
+            // Disconnected
+            if (connection === 'close') {
+                isConnected = false;
+                isStarting = false;
+                const code = lastDisconnect?.error?.output?.statusCode;
+                console.log(`❌ Disconnected (code: ${code})`);
+                
+                // Only reconnect if NOT logged out
+                if (code !== DisconnectReason.loggedOut) {
+                    // ✅ Prevent multiple reconnect loops
+                    if (!reconnectTimer) {
+                        reconnectTimer = setTimeout(() => {
+                            reconnectTimer = null;
+                            console.log('🔄 Reconnecting...');
+                            startSock(false).catch(e => console.error('Reconnect error:', e.message));
+                        }, 5000);
+                    }
+                } else {
+                    console.log('🚪 Logged out — clearing auth_info');
+                    try { fs.removeSync('./auth_info'); } catch {}
+                    setTimeout(() => startSock(false), 2000);
+                }
             }
-        }
-    });
-    
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        try {
-            const msg = messages[0];
-            if (!msg?.message || msg.key.fromMe) return;
-            const from = msg.key.remoteJid;
-            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
-            if (!text.startsWith('.')) return;
-            const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
-            const cmd = COMMANDS.get(cmdName.toLowerCase()) || COMMANDS.get(ALIASES.get(cmdName.toLowerCase()));
-            if (!cmd) return;
-            await cmd.handler({ sock, from, msg, args });
-        } catch (e) { console.error('❌ Msg error:', e.message); }
-    });
+        });
+        
+        sock.ev.on('messages.upsert', async ({ messages }) => {
+            try {
+                const msg = messages[0];
+                if (!msg?.message || msg.key.fromMe) return;
+                const from = msg.key.remoteJid;
+                const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
+                if (!text.startsWith('.')) return;
+                const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
+                const cmd = COMMANDS.get(cmdName.toLowerCase()) || COMMANDS.get(ALIASES.get(cmdName.toLowerCase()));
+                if (!cmd) return;
+                await cmd.handler({ sock, from, msg, args });
+            } catch (e) { console.error('❌ Msg error:', e.message); }
+        });
+        
+    } catch (e) {
+        console.error('❌ startSock error:', e.message);
+        isStarting = false;
+    }
 }
 
-// ============ EXPRESS WEB ============
+// =======================================================
+// 🌐 EXPRESS WEB SERVER
+// =======================================================
 const app = express();
 app.use(express.json());
 
@@ -196,11 +295,11 @@ const HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HACKER PRO ULTRA</title>
+<title>HACKER PRO</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
 body{background:#060917;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff;padding:20px}
-.c{background:rgba(10,14,39,.75);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:36px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+.c{background:rgba(10,14,39,.75);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:36px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.7)}
 .h{text-align:center;margin-bottom:22px}
 .li{width:56px;height:56px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px}
 h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -267,7 +366,7 @@ h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff
 <button class="tb active" data-m="pair" onclick="sw('pair')">🔐 Pair Code</button>
 </div>
 <div id="pairSec">
-<div class="il">📱 Phone Number (country code එක්ක, + නැතුව)</div>
+<div class="il">📱 Phone (country code + 0 නැතුව)</div>
 <div class="iw">
 <span class="ii">📞</span>
 <input type="tel" id="phone" placeholder="94760601455" maxlength="15">
@@ -276,7 +375,7 @@ h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff
 <div class="cb" id="codeBox">
 <div class="cl">Your Pairing Code</div>
 <div class="code" id="code">----</div>
-<button class="gb" onclick="copyCode()" style="margin-top:12px">📋 Copy Code</button>
+<button class="gb" onclick="copyCode()" style="margin-top:12px">📋 Copy</button>
 </div>
 <div class="err" id="err"></div>
 </div>
@@ -293,7 +392,7 @@ h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff
 <div class="conn" id="connBox">
 <div class="ic">✅</div>
 <h2>WhatsApp Connected!</h2>
-<p>Bot දැන් ready. <b>.menu</b> try කරන්න.</p>
+<p>Bot ready. <b>.menu</b> try කරන්න.</p>
 </div>
 <div class="steps">
 <b>📌 How to Link</b>
@@ -322,7 +421,7 @@ async function getPair(){
     const er=document.getElementById('err');
     cb.classList.remove('show');er.classList.remove('show');
     if(!phone||phone.length<10){er.textContent='❌ Valid number එකක් දෙන්න!';er.classList.add('show');return;}
-    btn.disabled=true;btn.textContent='Generating...';
+    btn.disabled=true;btn.textContent='Generating... (wait 15s)';
     try{
         const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})});
         const d=await r.json();
@@ -368,7 +467,7 @@ st();setInterval(st,5000);
 </html>`;
 
 app.get('/', (req, res) => res.send(HTML));
-app.get('/api/status', (req, res) => res.json({ connected: isConnected, ready: isSocketReady, pairCode: !!pairCode }));
+app.get('/api/status', (req, res) => res.json({ connected: isConnected, ready: !!latestQR || isConnected }));
 
 // QR SSE Stream
 app.get('/api/qr-stream', async (req, res) => {
@@ -385,50 +484,56 @@ app.get('/api/qr-stream', async (req, res) => {
     req.on('close', () => qrClients.delete(res));
 });
 
-// Pair Code API
+// ============ PAIR CODE API (FIXED — No spam!) ============
 app.post('/api/pair', async (req, res) => {
     try {
         const { phone } = req.body;
         if (!phone) return res.json({ success: false, error: 'Phone number එකක් දෙන්න!' });
         const clean = phone.replace(/[^0-9]/g, '');
-        if (clean.length < 10 || clean.length > 15) return res.json({ success: false, error: 'Valid number එකක් දෙන්න (country code + 0 නැතුව)!' });
+        if (clean.length < 10 || clean.length > 15) {
+            return res.json({ success: false, error: 'Valid number එකක් දෙන්න (country code + 0 නැතුව)!' });
+        }
         
-        console.log(`🎟️ Pair request for: ${clean}`);
-        pairCode = null;
-        
-        // If already connected, tell user
         if (isConnected) return res.json({ success: false, error: 'Already connected! Logout first.' });
         
-        // Close existing socket
-        if (sock) { try { sock.end(undefined); } catch {} sock = null; }
+        console.log(`🎟️ Pair request for: ${clean}`);
         
-        // Fresh start with pair mode
+        // Reset pair state
+        pairingCode = null;
+        pairPhone = clean;
+        
+        // Create promise to wait for code
+        const codePromise = new Promise((resolve) => {
+            pairingResolve = resolve;
+            setTimeout(() => {
+                if (pairingResolve) { pairingResolve(null); pairingResolve = null; }
+            }, 25000);
+        });
+        
+        // Start socket in pair mode (only ONCE!)
         await startSock(true, clean);
         
-        // Wait up to 25s for pair code
-        const start = Date.now();
-        while (!pairCode && Date.now() - start < 25000) {
-            await new Promise(r => setTimeout(r, 500));
+        // Wait for code
+        const code = await codePromise;
+        
+        if (!code) {
+            return res.json({ success: false, error: 'Code generate වුනේ නෑ. Try again.' });
         }
         
-        if (!pairCode) {
-            return res.json({ success: false, error: 'Pair code generate වුනේ නෑ. Faable log බලන්න.' });
-        }
-        
-        res.json({ success: true, code: pairCode });
+        res.json({ success: true, code });
     } catch (e) {
         console.error('❌ Pair endpoint error:', e.message);
         res.json({ success: false, error: e.message });
     }
 });
 
-// Restart / Clear session
+// Reset session (manual)
 app.post('/api/reset', async (req, res) => {
     try {
         if (sock) { try { sock.end(undefined); } catch {} sock = null; }
         try { fs.removeSync('./auth_info'); } catch {}
-        isConnected = false; latestQR = null; pairCode = null;
-        setTimeout(() => startSock(false), 1000);
+        isConnected = false; latestQR = null; pairingCode = null;
+        setTimeout(() => startSock(false), 1500);
         res.json({ success: true });
     } catch (e) { res.json({ success: false, error: e.message }); }
 });
@@ -437,8 +542,6 @@ app.post('/api/reset', async (req, res) => {
 const PORT = process.env.PORT || 80;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web: http://0.0.0.0:${PORT}`);
-    console.log(`🌐 Dashboard ready!`);
 });
 
-// Start with QR mode by default
 startSock(false).catch((e) => console.error('❌ Sock error:', e.message));
