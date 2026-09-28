@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — Simplified
+// 🔥 HACKER PRO ULTRA — Full Fixed
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -63,7 +63,7 @@ register('wiki', ['wikipedia'], async (c) => { const { sock, from, msg, args } =
 
 register('translate', ['tr'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🌐 .tr si Hello' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let to = 'en', text = args.join(' '); if (args[0].length <= 3) { to = args[0]; text = args.slice(1).join(' '); } const r = await safeJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`); if (!r?.[0]) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🌐 *${to}*\n\n${r[0].map(x => x[0]).join('')}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 
-register('owner', ['creator'], async (c) => { const { sock, from, msg } = c; try { const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${BOT_NAME} Owner\nTEL;type=CELL;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\nEND:VCARD`; await sock.sendMessage(from, { contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] } }, { quoted: msg }); } catch {} await sock.sendMessage(from, { text: `👑 +${OWNER_NUMBER}` }, { quoted: msg }); }, { public: true });
+register('owner', ['creator'], async (c) => { const { sock, from, msg } = c; try { const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${BOT_NAME} Owner\nTEL:type=CELL;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\nEND:VCARD`; await sock.sendMessage(from, { contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] } }, { quoted: msg }); } catch {} await sock.sendMessage(from, { text: `👑 +${OWNER_NUMBER}` }, { quoted: msg }); }, { public: true });
 
 register('ping', ['speed'], async (c) => { const { sock, from, msg } = c; const t = Date.now(); const s = await sock.sendMessage(from, { text: '🏓...' }, { quoted: msg }); await sock.sendMessage(from, { text: `⚡ ${Date.now() - t}ms\n💾 ${getRAM()}MB`, edit: s.key }); }, { public: true });
 
@@ -76,7 +76,7 @@ register('update', ['up'], async (c) => { const { sock, from, msg } = c; if (!is
 register('restart', ['rs'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); await sock.sendMessage(from, { text: '🔄 Restarting in 5s...' }, { quoted: msg }); setTimeout(() => process.exit(0), 5000); }, { public: false });
 
 register('menu', ['help'], async (c) => { const { sock, from, msg } = c; await sock.sendMessage(from, { text: `🔥 *${BOT_NAME}*\n\n📥 .ytmp3 .ytmp4 .fb .tt .ig\n🤖 .ai .imagine .weather .meme .joke .quote .wiki .translate\n👑 .owner .update .restart .gc\nℹ️ .settings .ping .menu` }, { quoted: msg }); }, { public: true });
-    
+
 console.log(`✅ ${COMMANDS.size} commands registered\n`);
 
 // ============ BAILEYS WHATSAPP ============
@@ -84,10 +84,14 @@ let sock = null;
 let currentCode = null;
 let currentUserId = null;
 let qrStore = new Map();
+let latestQR = null;
 let isSocketReady = false;
 const logger = pino({ level: 'silent' });
 
 async function startSock() {
+    if (fs.existsSync('./auth_info') && !fs.existsSync('./auth_info/.paired')) {
+        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared old auth_info'); } catch {}
+    }
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
     const { version } = await fetchLatestBaileysVersion();
     sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false, browser: ['Hacker Pro', 'Chrome', '1.0'] });
@@ -95,27 +99,33 @@ async function startSock() {
 
     sock.ev.on('connection.update', async (u) => {
         const { connection, lastDisconnect, qr } = u;
-        if (connection === 'connecting' || qr) {
+        if (connection === 'connecting') {
             isSocketReady = true;
             console.log('📡 Socket ready for pairing requests.');
         }
         if (qr) {
-            for (const [uid, data] of qrStore) {
-                if (data.status !== 'success') {
-                    try { data.qr = await QRCode.toDataURL(qr); data.status = 'success'; } catch {}
+            latestQR = qr;
+            isSocketReady = true;
+            console.log('📱 QR received');
+            try {
+                const qrDataUrl = await QRCode.toDataURL(qr);
+                for (const [uid, data] of qrStore) {
+                    data.qr = qrDataUrl;
+                    data.status = 'success';
                 }
-            }
+            } catch {}
         }
         if (connection === 'open') {
             console.log('✅ WhatsApp connected!');
             isSocketReady = true;
+            try { fs.writeFileSync('./auth_info/.paired', '1'); } catch {}
             for (const [uid, data] of qrStore) { data.status = 'connected'; }
         }
         if (connection === 'close') {
             isSocketReady = false;
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code !== DisconnectReason.loggedOut) { console.log('🔄 Reconnecting...'); setTimeout(startSock, 3000); }
-            else console.log('🚪 Logged out');
+            else { console.log('🚪 Logged out'); try { fs.removeSync('./auth_info'); } catch {} }
         }
     });
 
@@ -134,11 +144,10 @@ async function startSock() {
     });
 }
 
-// ============ EXPRESS WEB SERVER (INLINE HTML) ============
+// ============ EXPRESS WEB SERVER ============
 const app = express();
 app.use(express.json());
 
-// Inline HTML Dashboard
 const HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -151,10 +160,10 @@ body{background:#060917;min-height:100vh;display:flex;align-items:center;justify
 .c{background:rgba(10,14,39,.7);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:40px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.7)}
 .h{text-align:center;margin-bottom:30px}
 .logo{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px}
-.li{width:48px;height:48px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 8px 24px rgba(0,210,255,.4)}
+.li{width:48px;height:48px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px}
 h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7bd5,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .sub{color:#6b7280;font-size:13px;margin-top:4px;letter-spacing:.5px;text-transform:uppercase}
-.sb{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-bottom:20px}
+.sb{display:flex;align-items:center;justify-content:center;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-bottom:20px;gap:10px}
 .si{display:flex;align-items:center;gap:8px;font-size:13px}
 .si .l{color:#6b7280;font-size:11px;text-transform:uppercase}
 .si .v{color:#fff;font-weight:700;font-size:15px}
@@ -169,19 +178,18 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 .tb.active{color:#fff}
 .il{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;color:#9ca3af;font-weight:500}
 .iw{position:relative}
-.iw input{width:100%;padding:16px 16px 16px 48px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;color:#fff;font-size:16px;outline:none;transition:all .3s;font-family:monospace;letter-spacing:1px}
+.iw input{width:100%;padding:16px 16px 16px 48px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;color:#fff;font-size:16px;outline:none;font-family:monospace;letter-spacing:1px}
 .iw input:focus{border-color:#00d2ff;box-shadow:0 0 0 4px rgba(0,210,255,.1)}
 .ii{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:18px;opacity:.5}
 .gb{width:100%;padding:16px;margin-top:16px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:14px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:all .3s}
-.gb:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,210,255,.5)}
+.gb:hover:not(:disabled){transform:translateY(-2px)}
 .gb:disabled{opacity:.6;cursor:not-allowed}
 .cb{margin-top:24px;padding:24px;background:linear-gradient(135deg,rgba(0,210,255,.08),rgba(58,123,213,.08));border:2px solid rgba(0,210,255,.3);border-radius:16px;text-align:center;display:none}
 .cb.show{display:block}
 .cl{font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px}
-.code{font-size:44px;font-weight:900;letter-spacing:10px;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'Courier New',monospace}
-.qrb{margin-top:24px;padding:24px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;text-align:center;display:none}
-.qrb.show{display:block}
-.qrc{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}
+.code{font-size:36px;font-weight:900;letter-spacing:6px;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'Courier New',monospace;word-break:break-all}
+.qrb{margin-top:24px;padding:24px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;text-align:center}
+.qrc{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0;min-width:220px;min-height:220px}
 .qrc img{display:block;width:220px;height:220px}
 .err{margin-top:20px;padding:14px 16px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:12px;color:#ff6b6b;font-size:14px;display:none}
 .err.show{display:block}
@@ -189,7 +197,6 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 .stt{font-size:12px;color:#00d2ff;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-weight:700}
 .step{display:flex;align-items:flex-start;gap:12px;padding:8px 0;font-size:13px;color:#9ca3af;line-height:1.5}
 .sn{width:22px;height:22px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
-.step strong{color:#fff}
 .ft{text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#4b5563;letter-spacing:1px;text-transform:uppercase;font-weight:600}
 .ft span{background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 </style>
@@ -212,7 +219,7 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 <div class="il"><span>📱</span> Phone Number</div>
 <div class="iw">
 <span class="ii">📞</span>
-<input type="tel" id="phone" placeholder="94760601455" maxlength="15">
+<input type="tel" id="phone" placeholder="Your Number" maxlength="15">
 </div>
 <button class="gb" id="generateBtn" onclick="generateCode()">Generate Pair Code</button>
 <div class="cb" id="codeBox">
@@ -222,11 +229,12 @@ h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7b
 </div>
 </div>
 <div id="qrSection" style="display:none">
-<div class="qrb show">
+<div class="qrb">
 <div class="cl">Scan QR Code</div>
-<div class="qrc"><img id="qrImg" src="" alt="QR"></div>
+<div class="qrc"><img id="qrImg" src="" alt="QR" onerror="this.style.display='none'"></div>
 <div style="font-size:13px;color:#9ca3af;margin-top:8px">WhatsApp → Linked Devices → Link a Device</div>
 <button class="gb" onclick="generateQR()" style="margin-top:16px">🔄 Refresh QR</button>
+<div id="qrStatus" style="font-size:12px;color:#9ca3af;margin-top:10px"></div>
 </div>
 </div>
 <div class="err" id="error"></div>
@@ -278,28 +286,37 @@ function copyCode(){
 }
 async function generateQR(){
     if (qrPollInterval) clearInterval(qrPollInterval);
+    const st = document.getElementById("qrStatus");
+    const img = document.getElementById("qrImg");
+    st.textContent = "🔄 Loading QR...";
     try {
         const res = await fetch("/api/qr/request", { method: "POST" });
         const data = await res.json();
-        if (!data.success) return;
+        if (!data.success) { st.textContent = "❌ " + (data.error || "Failed"); return; }
+        let tries = 0;
         qrPollInterval = setInterval(async () => {
+            tries++;
+            if (tries > 15) { clearInterval(qrPollInterval); st.textContent = "⏰ Timeout"; return; }
             try {
                 const sr = await fetch("/api/qr/" + data.userId);
                 const sd = await sr.json();
                 if (sd.status === "success" && sd.qr) {
-                    document.getElementById("qrImg").src = sd.qr;
+                    img.src = sd.qr;
+                    img.style.display = "block";
+                    st.textContent = "✅ QR ready — scan කරන්න";
+                    clearInterval(qrPollInterval);
                 }
             } catch (e) {}
         }, 2000);
-    } catch (e) {}
+    } catch (e) { st.textContent = "❌ " + e.message; }
 }
 async function checkStatus(){
     try {
         const r = await fetch("/api/status");
         const d = await r.json();
         const el = document.getElementById("botStatus");
-        el.textContent = d.online ? "ONLINE" : "OFFLINE";
-        el.className = "v " + (d.online ? "on" : "off");
+        el.textContent = d.online ? "ONLINE" : (d.ready ? "READY" : "OFFLINE");
+        el.className = "v " + ((d.online || d.ready) ? "on" : "off");
     } catch (e) {}
 }
 document.getElementById("phone").addEventListener("input", e => e.target.value = e.target.value.replace(/[^0-9]/g, ""));
@@ -313,7 +330,7 @@ setInterval(checkStatus, 10000);
 app.get('/', (req, res) => res.send(HTML));
 
 // API - Status
-app.get('/api/status', (req, res) => res.json({ online: !!sock?.user, activeBots: 1, totalUsers: 1 }));
+app.get('/api/status', (req, res) => res.json({ online: !!sock?.user, ready: isSocketReady, activeBots: 1, totalUsers: 1 }));
 
 // API - Pair Code
 app.post('/api/pair', async (req, res) => {
@@ -340,15 +357,24 @@ app.get('/api/pair/:userId', (req, res) => {
 });
 
 // API - QR
-app.post('/api/qr/request', (req, res) => {
-    const userId = Date.now().toString();
-    qrStore.set(userId, { status: 'pending', qr: null });
-    res.json({ success: true, userId });
+app.post('/api/qr/request', async (req, res) => {
+    try {
+        if (!latestQR) await new Promise(r => setTimeout(r, 3000));
+        if (!latestQR) return res.json({ success: false, error: 'QR not ready. Wait 5s and refresh.' });
+        const userId = Date.now().toString();
+        const qrDataUrl = await QRCode.toDataURL(latestQR);
+        qrStore.set(userId, { status: 'success', qr: qrDataUrl });
+        console.log(`📱 QR served: ${userId}`);
+        res.json({ success: true, userId });
+    } catch (e) { res.json({ success: false, error: e.message }); }
 });
 
 app.get('/api/qr/:userId', (req, res) => {
     const data = qrStore.get(req.params.userId);
-    res.json(data || { status: 'pending' });
+    if (data && data.qr) return res.json(data);
+    if (latestQR) {
+        QRCode.toDataURL(latestQR).then(qr => res.json({ status: 'success', qr })).catch(() => res.json({ status: 'pending' }));
+    } else res.json({ status: 'pending' });
 });
 
 // API - Logout
