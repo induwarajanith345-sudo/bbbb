@@ -1,17 +1,139 @@
 // =======================================================
-// 🔥 HACKER PRO — ULTIMATE FIXED INDEX
-// Node.js 18+ | Zero Install | Zero Storage | Auto-Fix
+// 🔥 HACKER PRO — ULTRA NANO RAM + AUTO CLEAN
+// Node.js 18+ | Owner: 94760601455
 // =======================================================
 
 const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 // ============ 🛡️ AUTO CRASH FIX ============
 process.on('uncaughtException', (err) => console.error('🛡️ [CAUGHT]', err?.message || err));
 process.on('unhandledRejection', (err) => console.error('🛡️ [REJECT]', err?.message || err));
 
 // ============ 👑 CONFIG ============
-let OWNER_NUMBER = '94760601455'; // 🔴 ඔයාගේ WhatsApp number (country code, + නැතුව)
+let OWNER_NUMBER = '94760601455'; // 🔴 ඔයාගේ WhatsApp number
 const BOT_NAME = 'HACKER PRO';
+
+// =======================================================
+// 🧠 ULTRA NANO RAM SYSTEM + AUTO CLEAN
+// =======================================================
+const RAM_CONFIG = {
+    MAX_HEAP_MB: 180,           // RAM limit (MB) — මීට වැඩි නම් restart
+    CHECK_INTERVAL_MS: 60000,   // හැම 60s කට check
+    FORCE_GC: true,             // auto garbage collection
+    CLEAN_LOGS: true,           // log files truncate
+    CLEAN_TEMP: true,           // temp files delete
+    WARN_LIMIT: 3               // warnings 3කට පස්සේ restart
+};
+
+let memoryWarnings = 0;
+let lastCleanTime = Date.now();
+
+function getRAM() {
+    return parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
+}
+
+function logRAM(tag = '') {
+    const used = getRAM();
+    console.log(`💾 [RAM${tag}] ${used} MB`);
+    return used;
+}
+
+// RAM check + auto GC + auto restart
+function checkMemory() {
+    const used = getRAM();
+    if (used > RAM_CONFIG.MAX_HEAP_MB) {
+        memoryWarnings++;
+        console.log(`⚠️ [RAM] ${used}MB > ${RAM_CONFIG.MAX_HEAP_MB}MB (warning ${memoryWarnings}/${RAM_CONFIG.WARN_LIMIT})`);
+
+        if (RAM_CONFIG.FORCE_GC && global.gc) {
+            global.gc();
+            console.log(`🧹 [GC] Forced — now ${getRAM()}MB`);
+        }
+
+        if (memoryWarnings >= RAM_CONFIG.WARN_LIMIT) {
+            console.log('🛑 [RAM] Restarting due to high memory...');
+            setTimeout(() => process.exit(0), 2000);
+        }
+    } else {
+        memoryWarnings = 0;
+    }
+}
+
+// Temp files clean
+function cleanTempFiles() {
+    if (!RAM_CONFIG.CLEAN_TEMP) return;
+    const dirs = ['./tmp', './temp', './cache', './auth_info/temp', './sessions/temp'];
+    for (const dir of dirs) {
+        try {
+            if (fs.existsSync(dir)) {
+                const files = fs.readdirSync(dir);
+                let removed = 0;
+                for (const f of files) {
+                    try {
+                        const fp = path.join(dir, f);
+                        const stat = fs.statSync(fp);
+                        // 1 hour පරණ files delete
+                        if (Date.now() - stat.mtimeMs > 3600000) {
+                            fs.unlinkSync(fp);
+                            removed++;
+                        }
+                    } catch {}
+                }
+                if (removed) console.log(`🧹 [CLEAN] ${dir}: ${removed} files removed`);
+            }
+        } catch {}
+    }
+}
+
+// Log files clean (5MB+ truncate)
+function cleanLogs() {
+    if (!RAM_CONFIG.CLEAN_LOGS) return;
+    const dirs = ['./logs', './.logs'];
+    for (const dir of dirs) {
+        try {
+            if (fs.existsSync(dir)) {
+                const files = fs.readdirSync(dir);
+                for (const f of files) {
+                    try {
+                        const fp = path.join(dir, f);
+                        const stat = fs.statSync(fp);
+                        if (stat.size > 5 * 1024 * 1024) {
+                            fs.writeFileSync(fp, '');
+                            console.log(`🧹 [LOG] Truncated ${fp}`);
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+}
+
+// Cache clear (application-level)
+function cleanCache() {
+    if (global.cache) global.cache = {};
+    if (global.downloadsCache) global.downloadsCache = {};
+    if (global.tempStore) global.tempStore = {};
+}
+
+// Auto clean timer
+function startAutoClean() {
+    setInterval(() => {
+        checkMemory();
+        cleanTempFiles();
+        cleanLogs();
+        cleanCache();
+        if (RAM_CONFIG.FORCE_GC && global.gc) global.gc();
+        lastCleanTime = Date.now();
+    }, RAM_CONFIG.CHECK_INTERVAL_MS);
+
+    console.log(`🧹 Auto Clean: every ${RAM_CONFIG.CHECK_INTERVAL_MS / 1000}s | Max RAM: ${RAM_CONFIG.MAX_HEAP_MB}MB`);
+}
+
+// Start clean system
+setTimeout(startAutoClean, 5000);
+logRAM(' [START]');
 
 // ============ 🛡️ SAFE FETCH (Nano RAM) ============
 async function safeJson(url) {
@@ -55,14 +177,13 @@ function pickUrl(o) {
     return null;
 }
 
-// yt-dlp ONLY (FB/IG/TT සඳහා — YT APIs වලට යන්නෙ නෑ)
 function ytdlpOnly(url, mode = 'video') {
     return new Promise((resolve) => {
         const fmt = mode === 'audio'
             ? 'bestaudio[ext=m4a]/bestaudio/best'
             : 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b';
         exec(`yt-dlp -g -f "${fmt}" --no-playlist --no-warnings "${url}"`,
-            { timeout: 90000, maxBuffer: 1024 * 1024 * 10 },
+            { timeout: 90000, maxBuffer: 5 * 1024 * 1024 },
             (err, stdout) => {
                 if (err || !stdout) return resolve(null);
                 const l = stdout.split('\n').map(s => s.trim()).find(s => s.startsWith('http'));
@@ -542,7 +663,7 @@ register('chreact', ['creact'], async (ctx) => {
 }, { public: true });
 
 // =======================================================
-// 18. ⚙️ SETTINGS
+// 18. ⚙️ SETTINGS (with RAM info)
 // =======================================================
 register('settings', ['config'], async (ctx) => {
     const { sock, from, msg } = ctx;
@@ -550,12 +671,13 @@ register('settings', ['config'], async (ctx) => {
     const h = Math.floor(up / 3600);
     const m = Math.floor((up % 3600) / 60);
     const s = Math.floor(up % 60);
-    const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    const mem = getRAM();
 
     await sock.sendMessage(from, {
         text: `⚙️ *Settings*\n\n🤖 ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n\n` +
               `⏱️ Uptime: ${h}h ${m}m ${s}s\n` +
-              `💾 RAM: ${mem} MB\n` +
+              `💾 RAM: ${mem} MB / ${RAM_CONFIG.MAX_HEAP_MB} MB\n` +
+              `🧹 Auto Clean: ${RAM_CONFIG.CHECK_INTERVAL_MS / 1000}s\n` +
               `📦 Node: ${process.version}\n` +
               `⚡ PID: ${process.pid}\n\n> ${BOT_NAME}`
     }, { quoted: msg });
@@ -568,7 +690,7 @@ register('ping', ['speed'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const t = Date.now();
     const s = await sock.sendMessage(from, { text: '🏓 Pinging...' }, { quoted: msg });
-    await sock.sendMessage(from, { text: `⚡ Pong! ${Date.now() - t}ms\n\n> ${BOT_NAME}`, edit: s.key });
+    await sock.sendMessage(from, { text: `⚡ Pong! ${Date.now() - t}ms\n💾 RAM: ${getRAM()}MB\n\n> ${BOT_NAME}`, edit: s.key });
 }, { public: true });
 
 // =======================================================
@@ -578,9 +700,11 @@ register('gc', ['ram', 'clearcache'], async (ctx) => {
     const { sock, from, msg } = ctx;
     if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
 
-    const before = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    const before = getRAM();
     if (global.gc) global.gc();
-    const after = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    cleanTempFiles();
+    cleanCache();
+    const after = getRAM();
 
     await sock.sendMessage(from, {
         text: `🧹 *RAM Cleaned*\n\nBefore: ${before} MB\nAfter: ${after} MB\nSaved: ${(before - after).toFixed(2)} MB\n\n> ${BOT_NAME}`
@@ -588,85 +712,4 @@ register('gc', ['ram', 'clearcache'], async (ctx) => {
 }, { public: false });
 
 // =======================================================
-// 21. 🔄 UPDATE (FIXED)
-// =======================================================
-register('update', ['up'], async (ctx) => {
-    const { sock, from, msg } = ctx;
-
-    if (!isOwner(ctx)) {
-        return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
-    }
-
-    const s = await sock.sendMessage(from, { text: '🔄 Checking updates...' }, { quoted: msg });
-
-    const run = (cmd, timeout = 30000) => new Promise((resolve) => {
-        exec(cmd, { timeout, cwd: process.cwd() }, (err, stdout, stderr) => {
-            resolve({
-                ok: !err,
-                stdout: (stdout || '').trim(),
-                stderr: (stderr || '').trim()
-            });
-        });
-    });
-
-    try {
-        const gitCheck = await run('git --version');
-        if (!gitCheck.ok) {
-            return await sock.sendMessage(from, {
-                text: `❌ *Git install කරලා නෑ!*\n\n📦 Install:\n\`\`\`\nTermux: pkg install git\nUbuntu: sudo apt install git\n\`\`\`\n\n> ${BOT_NAME}`,
-                edit: s.key
-            });
-        }
-
-        const repoCheck = await run('git rev-parse --is-inside-work-tree');
-        if (!repoCheck.ok || repoCheck.stdout !== 'true') {
-            return await sock.sendMessage(from, {
-                text: `❌ *Git repository එකක් නෙමෙයි!*\n\n📁 Folder: ${process.cwd()}\n\n💡 *Fix:*\n\`\`\`\ngit init\ngit remote add origin <YOUR_GITHUB_URL>\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
-                edit: s.key
-            });
-        }
-
-        const remoteCheck = await run('git remote -v');
-        if (!remoteCheck.stdout || !remoteCheck.stdout.includes('origin')) {
-            return await sock.sendMessage(from, {
-                text: `❌ *Remote (origin) set කරලා නෑ!*\n\n💡 *Fix:*\n\`\`\`\ngit remote add origin <YOUR_GITHUB_URL>\n\`\`\`\n\n> ${BOT_NAME}`,
-                edit: s.key
-            });
-        }
-
-        const statusCheck = await run('git status --porcelain');
-        if (statusCheck.stdout) {
-            await sock.sendMessage(from, { text: '⚠️ Local changes — stash කරනවා...', edit: s.key });
-            await run('git stash');
-        }
-
-        await sock.sendMessage(from, { text: '🔄 Pulling from GitHub...', edit: s.key });
-        const pull = await run('git pull 2>&1', 60000);
-        const out = (pull.stdout + '\n' + pull.stderr).trim();
-
-        if (!pull.ok || /fatal|error|conflict/i.test(out)) {
-            return await sock.sendMessage(from, {
-                text: `❌ *Update Failed!*\n\n📋 Details:\n\`\`\`\n${out.slice(0, 800)}\n\`\`\`\n\n💡 *Manual fix:*\n\`\`\`\ngit fetch --all\ngit reset --hard origin/main\n\`\`\`\n\n> ${BOT_NAME}`,
-                edit: s.key
-            });
-        }
-
-        if (/Already up to date/i.test(out)) {
-            return await sock.sendMessage(from, {
-                text: `✅ *Already up to date!*\n\n> ${BOT_NAME}`,
-                edit: s.key
-            });
-        }
-
-        await sock.sendMessage(from, {
-            text: `✅ *Update Successful!*\n\n📋 Changes:\n\`\`\`\n${out.slice(0, 1000)}\n\`\`\`\n\n🔄 Restart: *.restart*\n\n> ${BOT_NAME}`,
-            edit: s.key
-        });
-
-    } catch (e) {
-        await sock.sendMessage(from, {
-            text: `❌ *Error:* ${e.message}\n\n> ${BOT_NAME}`,
-            edit: s.key
-        });
-    }
-}, { public: false
+// 21
