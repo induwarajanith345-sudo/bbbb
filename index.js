@@ -1,11 +1,10 @@
-// 🔥 HACKER PRO ULTRA — Full Fixed
+// 🔥 HACKER PRO ULTRA — QR + Pair Code
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
-const path = require('path');
-const { exec } = require('child_process');
 const pino = require('pino');
 const QRCode = require('qrcode');
+const { exec } = require('child_process');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
 let settings = { ownerNumber: '94760601455', botName: 'Hacker Pro Md' };
@@ -16,9 +15,7 @@ const BOT_NAME = settings.botName;
 process.on('uncaughtException', (e) => console.error('🛡️', e?.message || e));
 process.on('unhandledRejection', (e) => console.error('🛡️', e?.message || e));
 
-const MAX_RAM = 180; let memWarn = 0;
 const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
-setInterval(() => { const r = getRAM(); if (r > MAX_RAM) { memWarn++; if (global.gc) global.gc(); if (memWarn >= 3) setTimeout(() => process.exit(0), 2000); } else memWarn = 0; }, 60000);
 console.log(`💾 [RAM START] ${getRAM()} MB`);
 
 async function safeJson(url) { try { const c = new AbortController(); const t = setTimeout(() => c.abort(), 25000); const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: c.signal }); clearTimeout(t); if (!r.ok) return null; const txt = await r.text(); try { return JSON.parse(txt); } catch { return null; } } catch { return null; } }
@@ -79,20 +76,20 @@ register('menu', ['help'], async (c) => { const { sock, from, msg } = c; await s
 
 console.log(`✅ ${COMMANDS.size} commands registered\n`);
 
-// ============ BAILEYS WHATSAPP ============
+// ============ BAILEYS WITH BOTH QR + PAIR ============
 let sock = null;
-let currentCode = null;
-let currentUserId = null;
-let qrStore = new Map();
 let latestQR = null;
+let isConnected = false;
 let isSocketReady = false;
+let pairCode = null;
+let pairPhone = null;
+let qrClients = new Set();
 const logger = pino({ level: 'silent' });
 
-async function startSock() \async function startSock(phoneForPair = null) {
-    if (sock) { try { sock.end(undefined); } catch {} sock = null; }
-    
-    if (phoneForPair) {
-        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info for pair code'); } catch {}
+async function startSock(usePairMode = false, phoneForPair = null) {
+    // Clear auth_info ONLY if user requested a fresh start
+    if (usePairMode && phoneForPair) {
+        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info for pair mode'); } catch {}
     }
     
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
@@ -113,53 +110,61 @@ async function startSock() \async function startSock(phoneForPair = null) {
     sock.ev.on('connection.update', async (u) => {
         const { connection, lastDisconnect, qr } = u;
         
+        // Socket is connecting
         if (connection === 'connecting') {
             isSocketReady = true;
             console.log('📡 Socket connecting...');
             
-            if (phoneForPair && pairCodeResolver) {
+            // If pair mode, request pairing code NOW
+            if (usePairMode && phoneForPair && !pairCode) {
                 try {
                     await new Promise(r => setTimeout(r, 2000));
                     const code = await sock.requestPairingCode(phoneForPair);
-                    console.log(`🎟️ Pair code: ${code}`);
-                    pairCodeResolver.resolve(code);
-                    pairCodeResolver = null;
+                    pairCode = code;
+                    pairPhone = phoneForPair;
+                    console.log(`🎟️ Pair code for ${phoneForPair}: ${code}`);
                 } catch (e) {
                     console.error('❌ Pair code error:', e.message);
-                    if (pairCodeResolver) {
-                        pairCodeResolver.reject(e);
-                        pairCodeResolver = null;
-                    }
+                    pairCode = null;
                 }
             }
         }
         
-        if (qr && !phoneForPair) {
+        // QR received (only if not in pair mode)
+        if (qr && !usePairMode) {
             latestQR = qr;
             isSocketReady = true;
             console.log('📱 QR received');
             try {
-                const qrDataUrl = await QRCode.toDataURL(qr);
-                for (const [uid, data] of qrStore) {
-                    data.qr = qrDataUrl;
-                    data.status = 'success';
+                const dataUrl = await QRCode.toDataURL(qr, { width: 300 });
+                for (const res of qrClients) {
+                    try { res.write(`data: ${JSON.stringify({ qr: dataUrl })}\n\n`); } catch {}
                 }
             } catch {}
         }
         
+        // Connected!
         if (connection === 'open') {
             console.log('✅ WhatsApp connected!');
-            isSocketReady = true;
+            isConnected = true;
+            latestQR = null;
+            pairCode = null;
+            pairPhone = null;
             try { fs.writeFileSync('./auth_info/.paired', '1'); } catch {}
-            for (const [uid, data] of qrStore) { data.status = 'connected'; }
+            for (const res of qrClients) {
+                try { res.write(`data: ${JSON.stringify({ connected: true })}\n\n`); res.end(); } catch {}
+            }
+            qrClients.clear();
         }
         
+        // Disconnected
         if (connection === 'close') {
+            isConnected = false;
             isSocketReady = false;
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code !== DisconnectReason.loggedOut) {
                 console.log('🔄 Reconnecting...');
-                setTimeout(() => startSock(), 3000);
+                setTimeout(() => startSock(false), 3000);
             } else {
                 console.log('🚪 Logged out');
                 try { fs.removeSync('./auth_info'); } catch {}
@@ -182,9 +187,7 @@ async function startSock() \async function startSock(phoneForPair = null) {
     });
 }
 
-let pairCodeResolver = null;
-
-// ============ EXPRESS WEB SERVER ============
+// ============ EXPRESS WEB ============
 const app = express();
 app.use(express.json());
 
@@ -197,238 +200,237 @@ const HTML = `<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
 body{background:#060917;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff;padding:20px}
-.c{background:rgba(10,14,39,.7);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:40px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.7)}
-.h{text-align:center;margin-bottom:30px}
-.logo{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px}
-.li{width:48px;height:48px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px}
-h1{font-size:26px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#3a7bd5,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.sub{color:#6b7280;font-size:13px;margin-top:4px;letter-spacing:.5px;text-transform:uppercase}
-.sb{display:flex;align-items:center;justify-content:center;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-bottom:20px;gap:10px}
-.si{display:flex;align-items:center;gap:8px;font-size:13px}
-.si .l{color:#6b7280;font-size:11px;text-transform:uppercase}
-.si .v{color:#fff;font-weight:700;font-size:15px}
-.si .v.on{color:#00ff88}
-.si .v.off{color:#ff6b6b}
-.pdot{width:8px;height:8px;border-radius:50%;background:#00ff88}
-.tg{display:flex;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:4px;margin-bottom:20px;position:relative}
-.tg .sl{position:absolute;top:4px;left:4px;width:calc(50% - 4px);height:calc(100% - 8px);background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:10px;transition:transform .4s cubic-bezier(.16,1,.3,1)}
+.c{background:rgba(10,14,39,.75);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:36px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+.h{text-align:center;margin-bottom:22px}
+.li{width:56px;height:56px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px}
+h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:#6b7280;font-size:11px;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+.sb{text-align:center;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;margin-bottom:18px;font-size:13px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff6b6b;margin-right:8px;vertical-align:middle}
+.dot.on{background:#00ff88;box-shadow:0 0 10px #00ff88}
+.dot.ready{background:#ffb84d;box-shadow:0 0 10px #ffb84d}
+.st{color:#9ca3af}
+.st.on{color:#00ff88;font-weight:700}
+.tg{display:flex;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:4px;margin-bottom:18px;position:relative}
+.tg .sl{position:absolute;top:4px;left:4px;width:calc(50% - 4px);height:calc(100% - 8px);background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:9px;transition:transform .35s cubic-bezier(.16,1,.3,1)}
 .tg.qr .sl{transform:translateX(0)}
 .tg.pair .sl{transform:translateX(100%)}
 .tb{flex:1;padding:12px;background:transparent;border:none;color:#6b7280;font-size:14px;font-weight:600;cursor:pointer;position:relative;z-index:1;transition:color .3s}
 .tb.active{color:#fff}
-.il{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;color:#9ca3af;font-weight:500}
+.il{font-size:12px;color:#9ca3af;margin-bottom:8px;font-weight:500}
 .iw{position:relative}
-.iw input{width:100%;padding:16px 16px 16px 48px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;color:#fff;font-size:16px;outline:none;font-family:monospace;letter-spacing:1px}
+.iw input{width:100%;padding:15px 15px 15px 44px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:#fff;font-size:15px;outline:none;font-family:monospace;letter-spacing:1px}
 .iw input:focus{border-color:#00d2ff;box-shadow:0 0 0 4px rgba(0,210,255,.1)}
-.ii{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:18px;opacity:.5}
-.gb{width:100%;padding:16px;margin-top:16px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:14px;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+.ii{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;opacity:.5}
+.gb{width:100%;padding:15px;margin-top:14px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
 .gb:hover:not(:disabled){transform:translateY(-2px)}
 .gb:disabled{opacity:.6;cursor:not-allowed}
-.cb{margin-top:24px;padding:24px;background:linear-gradient(135deg,rgba(0,210,255,.08),rgba(58,123,213,.08));border:2px solid rgba(0,210,255,.3);border-radius:16px;text-align:center;display:none}
+.cb{margin-top:18px;padding:22px;background:linear-gradient(135deg,rgba(0,210,255,.08),rgba(58,123,213,.08));border:2px solid rgba(0,210,255,.3);border-radius:14px;text-align:center;display:none}
 .cb.show{display:block}
-.cl{font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px}
-.code{font-size:36px;font-weight:900;letter-spacing:6px;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'Courier New',monospace;word-break:break-all}
-.qrb{margin-top:24px;padding:24px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;text-align:center}
-.qrc{background:#fff;padding:16px;border-radius:12px;display:inline-block;margin:12px 0;min-width:220px;min-height:220px}
-.qrc img{display:block;width:220px;height:220px}
-.err{margin-top:20px;padding:14px 16px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:12px;color:#ff6b6b;font-size:14px;display:none}
+.cl{font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+.code{font-size:32px;font-weight:900;letter-spacing:5px;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'Courier New',monospace;word-break:break-all}
+.qrb{padding:22px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;text-align:center}
+.qrw{background:#fff;padding:14px;border-radius:12px;display:inline-block;margin:12px 0;min-width:260px;min-height:260px;position:relative}
+.qrw img{display:block;width:260px;height:260px}
+.qrw .sp{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#333;font-size:13px;text-align:center;width:100%;padding:0 20px}
+.qrh{font-size:12px;color:#9ca3af;margin-top:6px;line-height:1.6}
+.qrh b{color:#00d2ff}
+.err{margin-top:14px;padding:12px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:10px;color:#ff6b6b;font-size:13px;display:none}
 .err.show{display:block}
-.st{margin-top:24px;padding:20px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px}
-.stt{font-size:12px;color:#00d2ff;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-weight:700}
-.step{display:flex;align-items:flex-start;gap:12px;padding:8px 0;font-size:13px;color:#9ca3af;line-height:1.5}
-.sn{width:22px;height:22px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
-.ft{text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#4b5563;letter-spacing:1px;text-transform:uppercase;font-weight:600}
+.conn{display:none;text-align:center;padding:30px 20px}
+.conn.show{display:block}
+.conn .ic{font-size:56px;margin-bottom:12px}
+.conn h2{color:#00ff88;font-size:18px;margin-bottom:6px}
+.conn p{color:#9ca3af;font-size:12.5px}
+.steps{margin-top:18px;padding:16px;background:rgba(255,255,255,.03);border-radius:12px;font-size:12px;line-height:1.8;color:#9ca3af}
+.steps b{color:#00d2ff;text-transform:uppercase;font-size:10.5px;letter-spacing:1px;display:block;margin-bottom:6px}
+.steps .s{display:flex;gap:8px;padding:3px 0}
+.steps .n{width:18px;height:18px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
+.ft{text-align:center;margin-top:18px;font-size:10px;color:#4b5563;letter-spacing:1px;text-transform:uppercase;font-weight:600}
 .ft span{background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 </style>
 </head>
 <body>
 <div class="c">
 <div class="h">
-<div class="logo"><div class="li">⚡</div><h1>HACKER PRO ULTRA</h1></div>
-<p class="sub">WhatsApp Pairing System</p>
+<div class="li">⚡</div>
+<h1>HACKER PRO ULTRA</h1>
+<div class="sub">WhatsApp Link</div>
 </div>
 <div class="sb">
-<div class="si"><div class="pdot"></div><div><div class="l">Status</div><div class="v on" id="botStatus">ONLINE</div></div></div>
+<span class="dot" id="dot"></span>
+<span class="st" id="st">Checking...</span>
 </div>
-<div class="tg pair" id="methodToggle">
+<div class="tg pair" id="tg">
 <div class="sl"></div>
-<button class="tb" data-method="qr" onclick="switchMethod('qr')">📱 QR</button>
-<button class="tb active" data-method="pair" onclick="switchMethod('pair')">🔐 Pair</button>
+<button class="tb" data-m="qr" onclick="sw('qr')">📱 QR Code</button>
+<button class="tb active" data-m="pair" onclick="sw('pair')">🔐 Pair Code</button>
 </div>
-<div id="pairSection">
-<div class="il"><span>📱</span> Phone Number</div>
+<div id="pairSec">
+<div class="il">📱 Phone Number (country code එක්ක, + නැතුව)</div>
 <div class="iw">
 <span class="ii">📞</span>
-<input type="tel" id="phone" placeholder="Your Number" maxlength="15">
+<input type="tel" id="phone" placeholder="94760601455" maxlength="15">
 </div>
-<button class="gb" id="generateBtn" onclick="generateCode()">Generate Pair Code</button>
+<button class="gb" id="pBtn" onclick="getPair()">Generate Pair Code</button>
 <div class="cb" id="codeBox">
 <div class="cl">Your Pairing Code</div>
 <div class="code" id="code">----</div>
-<button class="gb" onclick="copyCode()" style="margin-top:16px">📋 Copy Code</button>
+<button class="gb" onclick="copyCode()" style="margin-top:12px">📋 Copy Code</button>
 </div>
+<div class="err" id="err"></div>
 </div>
-<div id="qrSection" style="display:none">
+<div id="qrSec" style="display:none">
 <div class="qrb">
-<div class="cl">Scan QR Code</div>
-<div class="qrc"><img id="qrImg" src="" alt="QR"></div>
-<div style="font-size:13px;color:#9ca3af;margin-top:8px">WhatsApp → Linked Devices → Link a Device</div>
-<button class="gb" onclick="generateQR()" style="margin-top:16px">🔄 Refresh QR</button>
-<div id="qrStatus" style="font-size:12px;color:#9ca3af;margin-top:10px"></div>
+<div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px">Scan QR Code</div>
+<div class="qrw">
+<img id="qrImg" style="display:none" alt="QR">
+<div class="sp" id="qrSpin">🔄 Loading QR...</div>
+</div>
+<div class="qrh">WhatsApp → <b>Settings</b> → <b>Linked Devices</b><br>→ <b>Link a Device</b> → Scan</div>
 </div>
 </div>
-<div class="err" id="error"></div>
-<div class="st">
-<div class="stt">📌 How to Link</div>
-<div class="step"><div class="sn">1</div><div>WhatsApp app එක open කරන්න</div></div>
-<div class="step"><div class="sn">2</div><div><strong>Settings</strong> → <strong>Linked Devices</strong></div></div>
-<div class="step"><div class="sn">3</div><div><strong>Link a Device</strong> tap කරන්න</div></div>
-<div class="step"><div class="sn">4</div><div>Code type කරන්න / QR scan කරන්න</div></div>
+<div class="conn" id="connBox">
+<div class="ic">✅</div>
+<h2>WhatsApp Connected!</h2>
+<p>Bot දැන් ready. <b>.menu</b> try කරන්න.</p>
 </div>
-<div class="ft">POWERED BY <span>HACKER PRO TEAM</span></div>
+<div class="steps">
+<b>📌 How to Link</b>
+<div class="s"><div class="n">1</div><div>WhatsApp app open කරන්න</div></div>
+<div class="s"><div class="n">2</div><div>Settings → Linked Devices</div></div>
+<div class="s"><div class="n">3</div><div>Link a Device tap කරන්න</div></div>
+<div class="s"><div class="n">4</div><div>Code / QR use කරන්න</div></div>
+</div>
+<div class="ft">POWERED BY <span>HACKER PRO</span></div>
 </div>
 <script>
-let qrPollInterval = null;
-function switchMethod(m){
-    const tg = document.getElementById("methodToggle");
-    const ps = document.getElementById("pairSection");
-    const qs = document.getElementById("qrSection");
-    document.querySelectorAll(".tb").forEach(b => b.classList.toggle("active", b.dataset.method === m));
-    tg.classList.remove("qr","pair");
-    tg.classList.add(m);
-    if (m === "qr") { ps.style.display = "none"; qs.style.display = "block"; generateQR(); }
-    else { ps.style.display = "block"; qs.style.display = "none"; if (qrPollInterval) clearInterval(qrPollInterval); }
+let es=null;
+function sw(m){
+    const tg=document.getElementById('tg');
+    const ps=document.getElementById('pairSec');
+    const qs=document.getElementById('qrSec');
+    document.querySelectorAll('.tb').forEach(b=>b.classList.toggle('active',b.dataset.m===m));
+    tg.classList.remove('qr','pair');tg.classList.add(m);
+    if(m==='qr'){ps.style.display='none';qs.style.display='block';connectSSE();}
+    else{ps.style.display='block';qs.style.display='none';if(es)es.close();}
 }
-async function generateCode(){
-    const phone = document.getElementById("phone").value.trim();
-    const btn = document.getElementById("generateBtn");
-    const cb = document.getElementById("codeBox");
-    const er = document.getElementById("error");
-    cb.classList.remove("show"); er.classList.remove("show");
-    if (!phone || phone.length < 10) { er.textContent = "❌ Valid phone number එකක් දෙන්න!"; er.classList.add("show"); return; }
-    btn.disabled = true; btn.textContent = "Generating...";
-    try {
-        const res = await fetch("/api/pair", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({phone}) });
-        const data = await res.json();
-        if (data.success) {
-            document.getElementById("code").textContent = data.code;
-            cb.classList.add("show");
-        } else {
-            er.textContent = "❌ " + (data.error || "Failed");
-            er.classList.add("show");
-        }
-    } catch (e) { er.textContent = "❌ " + e.message; er.classList.add("show"); }
-    btn.disabled = false; btn.textContent = "Generate Pair Code";
+async function getPair(){
+    const phone=document.getElementById('phone').value.trim();
+    const btn=document.getElementById('pBtn');
+    const cb=document.getElementById('codeBox');
+    const er=document.getElementById('err');
+    cb.classList.remove('show');er.classList.remove('show');
+    if(!phone||phone.length<10){er.textContent='❌ Valid number එකක් දෙන්න!';er.classList.add('show');return;}
+    btn.disabled=true;btn.textContent='Generating...';
+    try{
+        const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})});
+        const d=await r.json();
+        if(d.success){document.getElementById('code').textContent=d.code;cb.classList.add('show');}
+        else{er.textContent='❌ '+(d.error||'Failed');er.classList.add('show');}
+    }catch(e){er.textContent='❌ '+e.message;er.classList.add('show');}
+    btn.disabled=false;btn.textContent='Generate Pair Code';
 }
-function copyCode(){
-    const c = document.getElementById("code").textContent;
-    if (c && c !== "----") navigator.clipboard.writeText(c).then(() => alert("✅ Copied: " + c));
+function copyCode(){const c=document.getElementById('code').textContent;if(c&&c!=='----')navigator.clipboard.writeText(c).then(()=>alert('✅ Copied: '+c));}
+function connectSSE(){
+    if(es)es.close();
+    es=new EventSource('/api/qr-stream');
+    es.onmessage=(e)=>{try{
+        const d=JSON.parse(e.data);
+        if(d.connected){showConn();es.close();}
+        if(d.qr){const img=document.getElementById('qrImg');img.src=d.qr;img.style.display='block';document.getElementById('qrSpin').style.display='none';}
+    }catch{}};
+    es.onerror=()=>{setTimeout(connectSSE,3000);};
 }
-async function generateQR(){
-    if (qrPollInterval) clearInterval(qrPollInterval);
-    const st = document.getElementById("qrStatus");
-    const img = document.getElementById("qrImg");
-    st.textContent = "🔄 Loading QR...";
-    try {
-        const res = await fetch("/api/qr/request", { method: "POST" });
-        const data = await res.json();
-        if (!data.success) { st.textContent = "❌ " + (data.error || "Failed"); return; }
-        let tries = 0;
-        qrPollInterval = setInterval(async () => {
-            tries++;
-            if (tries > 15) { clearInterval(qrPollInterval); st.textContent = "⏰ Timeout"; return; }
-            try {
-                const sr = await fetch("/api/qr/" + data.userId);
-                const sd = await sr.json();
-                if (sd.status === "success" && sd.qr) {
-                    img.src = sd.qr;
-                    img.style.display = "block";
-                    st.textContent = "✅ QR ready — scan කරන්න";
-                    clearInterval(qrPollInterval);
-                }
-            } catch (e) {}
-        }, 2000);
-    } catch (e) { st.textContent = "❌ " + e.message; }
+function showConn(){
+    document.getElementById('pairSec').style.display='none';
+    document.getElementById('qrSec').style.display='none';
+    document.getElementById('tg').style.display='none';
+    document.getElementById('connBox').classList.add('show');
+    document.getElementById('dot').className='dot on';
+    document.getElementById('st').className='st on';
+    document.getElementById('st').textContent='CONNECTED';
 }
-async function checkStatus(){
-    try {
-        const r = await fetch("/api/status");
-        const d = await r.json();
-        const el = document.getElementById("botStatus");
-        el.textContent = d.online ? "ONLINE" : (d.ready ? "READY" : "OFFLINE");
-        el.className = "v " + ((d.online || d.ready) ? "on" : "off");
-    } catch (e) {}
+async function st(){
+    try{
+        const r=await fetch('/api/status');
+        const d=await r.json();
+        if(d.connected)return showConn();
+        const dot=document.getElementById('dot'),el=document.getElementById('st');
+        if(d.ready){dot.className='dot ready';el.textContent='READY';}
+        else{dot.className='dot';el.textContent='STARTING...';}
+    }catch(e){}
 }
-document.getElementById("phone").addEventListener("input", e => e.target.value = e.target.value.replace(/[^0-9]/g, ""));
-checkStatus();
-setInterval(checkStatus, 10000);
+document.getElementById('phone').addEventListener('input',e=>e.target.value=e.target.value.replace(/[^0-9]/g,''));
+st();setInterval(st,5000);
 </script>
 </body>
 </html>`;
 
 app.get('/', (req, res) => res.send(HTML));
-app.get('/api/status', (req, res) => res.json({ online: !!sock?.user, ready: isSocketReady, activeBots: 1, totalUsers: 1 }));
+app.get('/api/status', (req, res) => res.json({ connected: isConnected, ready: isSocketReady, pairCode: !!pairCode }));
 
-// API - Pair Code (FIXED)
+// QR SSE Stream
+app.get('/api/qr-stream', async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    if (latestQR) {
+        try { const dataUrl = await QRCode.toDataURL(latestQR, { width: 300 }); res.write(`data: ${JSON.stringify({ qr: dataUrl })}\n\n`); } catch {}
+    } else if (isConnected) {
+        res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
+    }
+    qrClients.add(res);
+    req.on('close', () => qrClients.delete(res));
+});
+
+// Pair Code API
 app.post('/api/pair', async (req, res) => {
     try {
         const { phone } = req.body;
         if (!phone) return res.json({ success: false, error: 'Phone number එකක් දෙන්න!' });
         const clean = phone.replace(/[^0-9]/g, '');
-        if (clean.length < 10) return res.json({ success: false, error: 'Valid number එකක් දෙන්න (country code එක්ක)!' });
+        if (clean.length < 10 || clean.length > 15) return res.json({ success: false, error: 'Valid number එකක් දෙන්න (country code + 0 නැතුව)!' });
+        
         console.log(`🎟️ Pair request for: ${clean}`);
+        pairCode = null;
         
-        const codePromise = new Promise((resolve, reject) => {
-            pairCodeResolver = { resolve, reject };
-            setTimeout(() => {
-                if (pairCodeResolver) {
-                    pairCodeResolver.reject(new Error('Timeout — 20s ඇතුලත code එක ආවේ නෑ'));
-                    pairCodeResolver = null;
-                }
-            }, 20000);
-        });
+        // If already connected, tell user
+        if (isConnected) return res.json({ success: false, error: 'Already connected! Logout first.' });
         
-        await startSock(clean);
-        const code = await codePromise;
-        currentUserId = Date.now().toString();
-        currentCode = code;
-        res.json({ success: true, userId: currentUserId, code });
+        // Close existing socket
+        if (sock) { try { sock.end(undefined); } catch {} sock = null; }
+        
+        // Fresh start with pair mode
+        await startSock(true, clean);
+        
+        // Wait up to 25s for pair code
+        const start = Date.now();
+        while (!pairCode && Date.now() - start < 25000) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+        
+        if (!pairCode) {
+            return res.json({ success: false, error: 'Pair code generate වුනේ නෑ. Faable log බලන්න.' });
+        }
+        
+        res.json({ success: true, code: pairCode });
     } catch (e) {
         console.error('❌ Pair endpoint error:', e.message);
-        pairCodeResolver = null;
         res.json({ success: false, error: e.message });
     }
 });
 
-app.get('/api/pair/:userId', (req, res) => {
-    if (currentCode && req.params.userId === currentUserId) res.json({ status: 'success', code: currentCode });
-    else res.json({ status: 'pending' });
-});
-
-// API - QR
-app.post('/api/qr/request', async (req, res) => {
+// Restart / Clear session
+app.post('/api/reset', async (req, res) => {
     try {
-        if (!latestQR) await new Promise(r => setTimeout(r, 3000));
-        if (!latestQR) return res.json({ success: false, error: 'QR not ready. Wait 5s and refresh.' });
-        const userId = Date.now().toString();
-        const qrDataUrl = await QRCode.toDataURL(latestQR);
-        qrStore.set(userId, { status: 'success', qr: qrDataUrl });
-        console.log(`📱 QR served: ${userId}`);
-        res.json({ success: true, userId });
+        if (sock) { try { sock.end(undefined); } catch {} sock = null; }
+        try { fs.removeSync('./auth_info'); } catch {}
+        isConnected = false; latestQR = null; pairCode = null;
+        setTimeout(() => startSock(false), 1000);
+        res.json({ success: true });
     } catch (e) { res.json({ success: false, error: e.message }); }
-});
-
-app.get('/api/qr/:userId', (req, res) => {
-    const data = qrStore.get(req.params.userId);
-    if (data && data.qr) return res.json(data);
-    if (latestQR) {
-        QRCode.toDataURL(latestQR).then(qr => res.json({ status: 'success', qr })).catch(() => res.json({ status: 'pending' }));
-    } else res.json({ status: 'pending' });
-});
-
-app.post('/api/logout', async (req, res) => {
-    try { if (sock) await sock.logout(); res.json({ success: true }); }
-    catch (e) { res.json({ success: false, error: e.message }); }
 });
 
 // ============ START ============
@@ -438,4 +440,5 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Dashboard ready!`);
 });
 
-startSock().catch((e) => console.error('❌ Sock error:', e.message));
+// Start with QR mode by default
+startSock(false).catch((e) => console.error('❌ Sock error:', e.message));
