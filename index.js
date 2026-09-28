@@ -3,34 +3,45 @@
 // Node.js 18+ | Owner: 94760601455
 // =======================================================
 
-const { exec } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
 const express = require('express');
+const path = require('path');
+const fs = require('fs-extra');
+const { exec } = require('child_process');
+const pino = require('pino');
+const QRCode = require('qrcode');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore
+} = require('@whiskeysockets/baileys');
+
+// ============ ⚙️ SETTINGS ============
+let settings = {
+    ownerNumber: '94760601455',
+    botName: 'Hacker Pro Md',
+    ownerName: 'Hacker Pro'
+};
+try {
+    const s = require('./settings.js');
+    settings = { ...settings, ...s };
+    console.log('✅ settings.js loaded');
+} catch {
+    console.log('⚠️ settings.js not found — using defaults');
+}
+
+let OWNER_NUMBER = settings.ownerNumber || '94760601455';
+const BOT_NAME = settings.botName || 'HACKER PRO';
 
 // ============ 🛡️ AUTO CRASH FIX ============
 process.on('uncaughtException', (err) => console.error('🛡️ [CAUGHT]', err?.message || err));
 process.on('unhandledRejection', (err) => console.error('🛡️ [REJECT]', err?.message || err));
 
-// ============ ⚙️ SETTINGS ============
-let settings = {};
-try {
-    settings = require('./settings.js');
-    console.log('✅ settings.js loaded');
-} catch {
-    console.log('⚠️ settings.js not found — using defaults');
-    settings = {
-        ownerNumber: process.env.OWNER_NUMBER || '94760601455',
-        botName: 'Hacker Pro Md',
-        ownerName: 'Hacker Pro'
-    };
-}
-
-// ============ 👑 CONFIG ============
-let OWNER_NUMBER = settings.ownerNumber || '94760601455';
-const BOT_NAME = settings.botName || 'HACKER PRO';
-
-// ============ 🧠 ULTRA NANO RAM + AUTO CLEAN ============
+// =======================================================
+// 🧠 ULTRA NANO RAM + AUTO CLEAN
+// =======================================================
 const RAM_CONFIG = {
     MAX_HEAP_MB: 180,
     CHECK_INTERVAL_MS: 60000,
@@ -45,21 +56,12 @@ function getRAM() {
     return parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
 }
 
-function logRAM(tag = '') {
-    const used = getRAM();
-    console.log(`💾 [RAM${tag}] ${used} MB`);
-    return used;
-}
-
 function checkMemory() {
     const used = getRAM();
     if (used > RAM_CONFIG.MAX_HEAP_MB) {
         memoryWarnings++;
         console.log(`⚠️ [RAM] ${used}MB > ${RAM_CONFIG.MAX_HEAP_MB}MB (${memoryWarnings}/${RAM_CONFIG.WARN_LIMIT})`);
-        if (RAM_CONFIG.FORCE_GC && global.gc) {
-            global.gc();
-            console.log(`🧹 [GC] now ${getRAM()}MB`);
-        }
+        if (RAM_CONFIG.FORCE_GC && global.gc) global.gc();
         if (memoryWarnings >= RAM_CONFIG.WARN_LIMIT) {
             console.log('🛑 [RAM] Restarting...');
             setTimeout(() => process.exit(0), 2000);
@@ -68,43 +70,31 @@ function checkMemory() {
 }
 
 function cleanTempFiles() {
-    if (!RAM_CONFIG.CLEAN_TEMP) return;
-    const dirs = ['./tmp', './temp', './cache', './auth_info/temp'];
+    const dirs = ['./tmp', './temp', './cache'];
     for (const dir of dirs) {
         try {
             if (fs.existsSync(dir)) {
                 const files = fs.readdirSync(dir);
-                let removed = 0;
                 for (const f of files) {
                     try {
                         const fp = path.join(dir, f);
                         const stat = fs.statSync(fp);
-                        if (Date.now() - stat.mtimeMs > 3600000) {
-                            fs.unlinkSync(fp);
-                            removed++;
-                        }
+                        if (Date.now() - stat.mtimeMs > 3600000) fs.unlinkSync(fp);
                     } catch {}
                 }
-                if (removed) console.log(`🧹 [CLEAN] ${dir}: ${removed} files`);
             }
         } catch {}
     }
 }
 
-function cleanCache() {
-    if (global.cache) global.cache = {};
-    if (global.tempStore) global.tempStore = {};
-}
-
 setInterval(() => {
     checkMemory();
-    cleanTempFiles();
-    cleanCache();
+    if (RAM_CONFIG.CLEAN_TEMP) cleanTempFiles();
     if (RAM_CONFIG.FORCE_GC && global.gc) global.gc();
 }, RAM_CONFIG.CHECK_INTERVAL_MS);
 
+console.log(`💾 [RAM] ${getRAM()} MB`);
 console.log(`🧹 Auto Clean: every ${RAM_CONFIG.CHECK_INTERVAL_MS / 1000}s | Max RAM: ${RAM_CONFIG.MAX_HEAP_MB}MB`);
-logRAM(' [START]');
 
 // ============ 🛡️ SAFE FETCH ============
 async function safeJson(url) {
@@ -197,17 +187,15 @@ async function ytDownload(url, mode) {
         const u = pickUrl(r);
         if (u) return u;
     }
-    return await ytdlpOver(url, mode);
+    return await ytdlpOnly(url, mode);
 }
 
-// (typo fix — ඉහළ එකේ `ytdlpOver` නෙමෙයි, `ytdlpOnly`)
-async function ytdlpOver(url, mode) { return ytdlpOnly(url, mode); }
-
 // =======================================================
-// 📋 COMMANDS REGISTER
+// 📋 COMMAND SYSTEM
 // =======================================================
 const COMMANDS = new Map();
 const ALIASES = new Map();
+const PREFIX = '.';
 
 function register(name, aliases = [], handler, opts = {}) {
     COMMANDS.set(name, { handler, opts });
@@ -216,8 +204,10 @@ function register(name, aliases = [], handler, opts = {}) {
 }
 
 // =======================================================
-// 1. 🎵 YOUTUBE AUDIO
+// COMMANDS (23)
 // =======================================================
+
+// 1. 🎵 YOUTUBE AUDIO
 register('ytmp3', ['yta', 'song', 'mp3'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎵 Usage: .ytmp3 <name or link>' }, { quoted: msg });
@@ -241,9 +231,7 @@ register('ytmp3', ['yta', 'song', 'mp3'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 2. 🎬 YOUTUBE VIDEO
-// =======================================================
 register('ytmp4', ['ytv', 'video', 'mp4'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎬 Usage: .ytmp4 <name or link>' }, { quoted: msg });
@@ -267,9 +255,7 @@ register('ytmp4', ['ytv', 'video', 'mp4'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 3. 📘 FACEBOOK
-// =======================================================
 register('fb', ['fbdl', 'facebook'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '📘 Usage: .fb <URL>' }, { quoted: msg });
@@ -296,9 +282,7 @@ register('fb', ['fbdl', 'facebook'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 4. 🎵 TIKTOK
-// =======================================================
 register('tt', ['ttdl', 'tiktok'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎵 Usage: .tt <URL>' }, { quoted: msg });
@@ -318,9 +302,7 @@ register('tt', ['ttdl', 'tiktok'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 5. 📸 INSTAGRAM
-// =======================================================
 register('ig', ['igdl', 'instagram'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '📸 Usage: .ig <URL>' }, { quoted: msg });
@@ -337,9 +319,7 @@ register('ig', ['igdl', 'instagram'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 6. 🤖 AI
-// =======================================================
 register('ai', ['gpt', 'chat'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🤖 Usage: .ai <question>' }, { quoted: msg });
@@ -365,9 +345,7 @@ register('ai', ['gpt', 'chat'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
-// 7. 🎨 AI IMAGE
-// =======================================================
+// 7. 🎨 IMAGINE
 register('imagine', ['img', 'gen'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎨 Usage: .imagine <prompt>' }, { quoted: msg });
@@ -382,9 +360,7 @@ register('imagine', ['img', 'gen'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 8. 🌤️ WEATHER
-// =======================================================
 register('weather', ['wthr'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     const city = args.join(' ') || 'Colombo';
@@ -400,9 +376,7 @@ register('weather', ['wthr'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 9. 😂 MEME
-// =======================================================
 register('meme', ['memes'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const s = await sock.sendMessage(from, { text: '🔄 Fetching...' }, { quoted: msg });
@@ -416,9 +390,7 @@ register('meme', ['memes'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 10. 😄 JOKE
-// =======================================================
 register('joke', ['jokes'], async (ctx) => {
     const { sock, from, msg } = ctx;
     try {
@@ -430,9 +402,7 @@ register('joke', ['jokes'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 11. 💬 QUOTE
-// =======================================================
 register('quote', ['quotes'], async (ctx) => {
     const { sock, from, msg } = ctx;
     try {
@@ -445,9 +415,7 @@ register('quote', ['quotes'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 12. 🎤 LYRICS
-// =======================================================
 register('lyrics', ['ly'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🎤 Usage: .lyrics <song>' }, { quoted: msg });
@@ -468,9 +436,7 @@ register('lyrics', ['ly'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 13. 🌐 TRANSLATE
-// =======================================================
 register('translate', ['tr'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '🌐 Usage: .tr si Hello' }, { quoted: msg });
@@ -487,9 +453,7 @@ register('translate', ['tr'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 14. 📚 WIKI
-// =======================================================
 register('wiki', ['wikipedia'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '📚 Usage: .wiki <topic>' }, { quoted: msg });
@@ -509,9 +473,7 @@ register('wiki', ['wikipedia'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 15. 👑 OWNER
-// =======================================================
 register('owner', ['creator', 'dev'], async (ctx) => {
     const { sock, from, msg } = ctx;
     try {
@@ -526,9 +488,7 @@ register('owner', ['creator', 'dev'], async (ctx) => {
     await sock.sendMessage(from, { text: `👑 +${OWNER_NUMBER}\n🤖 ${BOT_NAME}\n\n> ${BOT_NAME}` }, { quoted: msg });
 }, { public: true });
 
-// =======================================================
 // 16. 📢 BROADCAST
-// =======================================================
 register('broad', ['broadcast', 'bc'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
@@ -552,9 +512,7 @@ register('broad', ['broadcast', 'bc'], async (ctx) => {
     }
 }, { public: false });
 
-// =======================================================
 // 17. 💬 CHANNEL REACT
-// =======================================================
 register('chreact', ['creact'], async (ctx) => {
     const { sock, from, msg, args } = ctx;
     if (!args[0]) return await sock.sendMessage(from, { text: '💬 Usage: .chreact <emoji> <url>' }, { quoted: msg });
@@ -582,9 +540,7 @@ register('chreact', ['creact'], async (ctx) => {
     }
 }, { public: true });
 
-// =======================================================
 // 18. ⚙️ SETTINGS
-// =======================================================
 register('settings', ['config'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const up = process.uptime();
@@ -600,9 +556,7 @@ register('settings', ['config'], async (ctx) => {
     }, { quoted: msg });
 }, { public: true });
 
-// =======================================================
 // 19. 🏓 PING
-// =======================================================
 register('ping', ['speed'], async (ctx) => {
     const { sock, from, msg } = ctx;
     const t = Date.now();
@@ -610,25 +564,20 @@ register('ping', ['speed'], async (ctx) => {
     await sock.sendMessage(from, { text: `⚡ ${Date.now() - t}ms\n💾 ${getRAM()}MB\n\n> ${BOT_NAME}`, edit: s.key });
 }, { public: true });
 
-// =======================================================
 // 20. 🧹 GC
-// =======================================================
 register('gc', ['ram', 'clearcache'], async (ctx) => {
     const { sock, from, msg } = ctx;
     if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
     const before = getRAM();
     if (global.gc) global.gc();
     cleanTempFiles();
-    cleanCache();
     const after = getRAM();
     await sock.sendMessage(from, {
         text: `🧹 *GC*\n\nBefore: ${before} MB\nAfter: ${after} MB\nSaved: ${(before - after).toFixed(2)} MB\n\n> ${BOT_NAME}`
     }, { quoted: msg });
 }, { public: false });
 
-// =======================================================
 // 21. 🔄 UPDATE
-// =======================================================
 register('update', ['up'], async (ctx) => {
     const { sock, from, msg } = ctx;
     if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
@@ -640,9 +589,46 @@ register('update', ['up'], async (ctx) => {
     });
 }, { public: false });
 
-// =======================================================
 // 22. 🔄 RESTART
-// =======================================================
 register('restart', ['reboot', 'rs'], async (ctx) => {
     const { sock, from, msg } = ctx;
-    if (!
+    if (!isOwner(ctx)) return await sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg });
+    await sock.sendMessage(from, { text: '🔄 Restarting in 5s...' }, { quoted: msg });
+    setTimeout(() => process.exit(0), 5000);
+}, { public: false });
+
+// 23. 📋 MENU
+register('menu', ['help', 'commands'], async (ctx) => {
+    const { sock, from, msg } = ctx;
+    const text = `🔥 *${BOT_NAME} — Menu*\n\n` +
+        `*📥 Downloads*\n.ytmp3 / .ytmp4\n.fb / .tt / .ig\n\n` +
+        `*🤖 AI & Tools*\n.ai / .imagine / .weather\n.meme / .joke / .quote\n.lyrics / .translate / .wiki\n\n` +
+        `*👑 Owner*\n.owner / .broad / .chreact\n.update / .restart / .gc\n\n` +
+        `*ℹ️ Info*\n.settings / .ping / .menu\n\n` +
+        `> ${BOT_NAME}`;
+    await sock.sendMessage(from, { text }, { quoted: msg });
+}, { public: true });
+
+console.log(`\n✅ Total commands: ${COMMANDS.size}\n`);
+
+// =======================================================
+// 🤖 BAILEYS WHATSAPP CONNECTION
+// =======================================================
+const AUTH_DIR = './auth_info';
+let sock = null;
+let connectionState = 'disconnected';
+let currentPairCode = null;
+let currentPairUserId = null;
+let qrCache = new Map();
+
+const logger = pino({ level: 'silent' });
+
+async function startSock() {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { version } = await fetchLatestBaileysVersion();
+
+    sock = makeWASocket({
+        version,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys,
