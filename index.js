@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — Compact Complete
+// 🔥 HACKER PRO ULTRA — Complete Fix
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -353,11 +353,12 @@ register('menu', ['help'], async (c) => {
 
 console.log(`✅ ${COMMANDS.size} commands registered\n`);
 
-// ============ BAILEYS ============
+// ============ BAILEYS (FIXED CONNECTION) ============
 let sock = null;
 let currentCode = null;
 let currentUserId = null;
 let qrStore = new Map();
+let isSocketReady = false; // ✅ Socket readiness එක නිරීක්ෂණය කිරීමට නව විචල්යයක්
 const logger = pino({ level: 'silent' });
 
 async function startSock() {
@@ -366,10 +367,18 @@ async function startSock() {
     sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false, browser: ['Hacker Pro', 'Chrome', '1.0'] });
     sock.ev.on('creds.update', saveCreds);
 
+    // ✅ Socket සම්බන්ධතා තත්ත්වය නිරීක්ෂණය කරන්න
     sock.ev.on('connection.update', async (u) => {
         const { connection, lastDisconnect, qr } = u;
+
+        // Socket "connecting" තත්ත්වයට පැමිණි විට හෝ QR කේතයක් ලැබුණු විට
+        if (connection === 'connecting' || qr) {
+            isSocketReady = true; // ✅ Socket සූදානම් බව සලකුණු කරන්න
+            console.log('📡 Socket ready for pairing requests.');
+        }
+
         if (qr) {
-            // QR update
+            // QR කේතය ලැබුණු විට, අපගේ QR ගබඩාව යාවත්කාලීන කරන්න
             for (const [uid, data] of qrStore) {
                 if (data.status !== 'success') {
                     try { data.qr = await QRCode.toDataURL(qr); data.status = 'success'; } catch {}
@@ -378,9 +387,11 @@ async function startSock() {
         }
         if (connection === 'open') {
             console.log('✅ WhatsApp connected!');
+            isSocketReady = true; // සම්බන්ධතාවය විවෘත වූ විට
             for (const [uid, data] of qrStore) { data.status = 'connected'; }
         }
         if (connection === 'close') {
+            isSocketReady = false; // සම්බන්ධතාවය වැසුණු විට
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code !== DisconnectReason.loggedOut) { console.log('🔄 Reconnecting...'); setTimeout(startSock, 3000); }
             else console.log('🚪 Logged out');
@@ -405,6 +416,7 @@ async function startSock() {
 // ============ EXPRESS API ============
 const app = express();
 app.use(express.json());
+// ✅ Static files නිවැරදිව සේවය කිරීමට මාර්ගය
 app.use(express.static(path.join(__dirname, 'web')));
 
 app.get('/api/status', (req, res) => {
@@ -416,6 +428,9 @@ app.post('/api/pair', async (req, res) => {
         const { phone } = req.body;
         if (!phone) return res.json({ success: false, error: 'Phone required' });
         if (!sock) return res.json({ success: false, error: 'Bot not ready' });
+        // ✅ Pairing කේතය ඉල්ලීමට පෙර Socket සූදානම් දැයි පරීක්ෂා කරන්න
+        if (!isSocketReady) return res.json({ success: false, error: 'Socket is not ready yet. Please try again in a moment.' });
+
         const clean = phone.replace(/[^0-9]/g, '');
         const userId = Date.now().toString();
         currentUserId = userId;
@@ -448,8 +463,9 @@ app.post('/api/logout', async (req, res) => {
     try { if (sock) await sock.logout(); res.json({ success: true }); } catch (e) { res.json({ success: false, error: e.message }); }
 });
 
-// ============ START ============
+// ============ START (FIXED LISTENING) ============
 const PORT = process.env.PORT || 80;
-app.listen(PORT, () => console.log(`🌐 Web: http://localhost:${PORT}`));
+// ✅ Faable Cloud සඳහා '0.0.0.0' ලිපිනය අත්යවශ්ය වේ
+app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Web: http://0.0.0.0:${PORT}`));
 
 startSock().catch((e) => console.error('❌ Sock error:', e.message));
