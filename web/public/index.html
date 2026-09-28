@@ -1,6 +1,5 @@
 // =======================================================
-// 🔥 HACKER PRO ULTRA — Full Complete File
-// Node.js 18+ | Owner: 94760601455
+// 🔥 HACKER PRO ULTRA
 // =======================================================
 
 require('dotenv').config();
@@ -101,15 +100,15 @@ function register(name, aliases, handler, opts = {}) {
 }
 console.log('📋 Registering commands...');
 
-// ============ 23 COMMANDS ============
+// ============ COMMANDS 1-5 ============
 register('ytmp3', ['yta', 'song', 'mp3'], async (c) => {
     const { sock, from, msg, args } = c;
-    if (!args[0]) return sock.sendMessage(from, { text: '🎵 Usage: .ytmp3 <name or link>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading Audio...' }, { quoted: msg });
+    if (!args[0]) return sock.sendMessage(from, { text: '🎵 Usage: .ytmp3 <name>' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading...' }, { quoted: msg });
     try {
         let url = args.join(' '), title = 'audio';
         if (!url.includes('youtu')) { const r = await ytSearch(url); if (!r) throw new Error('නෑ!'); url = r.url; title = r.title; }
-        const dl = await ytDownload(url, 'audio'); if (!dl) throw new Error('API fail!');
+        const dl = await ytDownload(url, 'audio'); if (!dl) throw new Error('Fail!');
         await sock.sendMessage(from, { audio: { url: dl }, mimetype: 'audio/mpeg', fileName: `${title}.mp3`, ptt: false }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
@@ -117,12 +116,12 @@ register('ytmp3', ['yta', 'song', 'mp3'], async (c) => {
 
 register('ytmp4', ['ytv', 'video', 'mp4'], async (c) => {
     const { sock, from, msg, args } = c;
-    if (!args[0]) return sock.sendMessage(from, { text: '🎬 Usage: .ytmp4 <name or link>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading Video...' }, { quoted: msg });
+    if (!args[0]) return sock.sendMessage(from, { text: '🎬 Usage: .ytmp4 <name>' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading...' }, { quoted: msg });
     try {
         let url = args.join(' '), title = 'video';
         if (!url.includes('youtu')) { const r = await ytSearch(url); if (!r) throw new Error('නෑ!'); url = r.url; title = r.title; }
-        const dl = await ytDownload(url, 'video'); if (!dl) throw new Error('API fail!');
+        const dl = await ytDownload(url, 'video'); if (!dl) throw new Error('Fail!');
         await sock.sendMessage(from, { document: { url: dl }, mimetype: 'video/mp4', fileName: `${title}.mp4`, caption: `> ${BOT_NAME}` }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
@@ -131,14 +130,14 @@ register('ytmp4', ['ytv', 'video', 'mp4'], async (c) => {
 register('fb', ['fbdl', 'facebook'], async (c) => {
     const { sock, from, msg, args } = c;
     if (!args[0]) return sock.sendMessage(from, { text: '📘 Usage: .fb <URL>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading FB...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading...' }, { quoted: msg });
     try {
         let dl = null;
         for (const a of [`https://api.nyxs.pw/dl/facebook?url=${encodeURIComponent(args[0])}`, `https://api.zenkey.my.id/download/facebook?url=${encodeURIComponent(args[0])}`]) {
             const r = await safeJson(a); dl = pickUrl(r) || r?.download_url || r?.video_hd; if (dl) break;
         }
         if (!dl) dl = await ytdlp(args[0], 'video');
-        if (!dl) throw new Error('Download link නෑ!');
+        if (!dl) throw new Error('නෑ!');
         await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
@@ -147,12 +146,12 @@ register('fb', ['fbdl', 'facebook'], async (c) => {
 register('tt', ['ttdl', 'tiktok'], async (c) => {
     const { sock, from, msg, args } = c;
     if (!args[0]) return sock.sendMessage(from, { text: '🎵 Usage: .tt <URL>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading TikTok...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading...' }, { quoted: msg });
     try {
         const r = await safeJson(`https://tikwm.com/api/?url=${encodeURIComponent(args[0])}`);
         let dl = r?.data?.play || r?.data?.hdplay;
         if (!dl) dl = await ytdlp(args[0], 'video');
-        if (!dl) throw new Error('Download link නෑ!');
+        if (!dl) throw new Error('නෑ!');
         await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
@@ -161,15 +160,15 @@ register('tt', ['ttdl', 'tiktok'], async (c) => {
 register('ig', ['igdl', 'instagram'], async (c) => {
     const { sock, from, msg, args } = c;
     if (!args[0]) return sock.sendMessage(from, { text: '📸 Usage: .ig <URL>' }, { quoted: msg });
-    const s = await sock.sendMessage(from, { text: '🔄 Downloading IG...' }, { quoted: msg });
+    const s = await sock.sendMessage(from, { text: '🔄 Downloading...' }, { quoted: msg });
     try {
         const dl = await ytdlp(args[0], 'video');
-        if (!dl) throw new Error('Download link නෑ!');
+        if (!dl) throw new Error('නෑ!');
         await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
 }, { public: true });
-
+        
 register('ai', ['gpt', 'chat'], async (c) => {
     const { sock, from, msg, args } = c;
     if (!args[0]) return sock.sendMessage(from, { text: '🤖 Usage: .ai <question>' }, { quoted: msg });
@@ -181,7 +180,7 @@ register('ai', ['gpt', 'chat'], async (c) => {
             if (typeof ans === 'object') ans = ans?.text;
             if (typeof ans === 'string') break; ans = null;
         }
-        if (!ans) throw new Error('AI response නෑ!');
+        if (!ans) throw new Error('AI නෑ!');
         await sock.sendMessage(from, { text: `🤖 ${ans.slice(0, 3000)}\n\n> ${BOT_NAME}`, edit: s.key });
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
 }, { public: true });
@@ -212,7 +211,7 @@ register('meme', ['memes'], async (c) => {
     const { sock, from, msg } = c;
     const s = await sock.sendMessage(from, { text: '🔄 Fetching...' }, { quoted: msg });
     try {
-        const r = await safeJson('https://meme-api.com/gimme'); if (!r?.url) throw new Error('Meme නෑ!');
+        const r = await safeJson('https://meme-api.com/gimme'); if (!r?.url) throw new Error('නෑ!');
         await sock.sendMessage(from, { image: { url: r.url }, caption: `😂 ${r.title}\n\n> ${BOT_NAME}` }, { quoted: msg });
         await sock.sendMessage(from, { delete: s.key }).catch(() => {});
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
@@ -244,7 +243,7 @@ register('lyrics', ['ly'], async (c) => {
         const r = await safeJson(`https://api.lyrics.ovh/suggest/${encodeURIComponent(args.join(' '))}`);
         const f = r?.data?.[0]; if (!f) throw new Error('නෑ!');
         const ly = await safeJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(f.artist.name)}/${encodeURIComponent(f.title)}`);
-        if (!ly?.lyrics) throw new Error('Lyrics නෑ!');
+        if (!ly?.lyrics) throw new Error('නෑ!');
         await sock.sendMessage(from, { text: `🎤 *${f.title}*\n🎙️ ${f.artist.name}\n\n${ly.lyrics.slice(0, 3000)}\n\n> ${BOT_NAME}`, edit: s.key });
     } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); }
 }, { public: true });
@@ -305,7 +304,7 @@ register('chreact', ['creact'], async (c) => {
         let emoji = args[0], sid, mid;
         if (args[1]) { const m = args[1].match(/channel\/([^/]+)\/(\d+)/); if (m) { sid = m[1]; mid = m[2]; } }
         if (!mid) { const q = msg.message?.extendedTextMessage?.contextInfo; if (q?.stanzaId && q?.remoteJid?.includes('@newsletter')) { sid = q.remoteJid.split('@')[0]; mid = q.stanzaId; } }
-        if (!sid || !mid) throw new Error('Channel URL දෙන්න!');
+        if (!sid || !mid) throw new Error('URL දෙන්න!');
         if (emoji.length > 10) emoji = '❤️';
         await sock.sendMessage(`${sid}@newsletter`, { react: { text: emoji, key: { remoteJid: `${sid}@newsletter`, id: mid, fromMe: false } } });
         await sock.sendMessage(from, { text: `✅ ${emoji}` }, { quoted: msg });
@@ -354,7 +353,7 @@ register('menu', ['help'], async (c) => {
     const { sock, from, msg } = c;
     await sock.sendMessage(from, { text: `🔥 *${BOT_NAME}*\n\n📥 .ytmp3 .ytmp4 .fb .tt .ig\n🤖 .ai .imagine .weather .meme .joke .quote .lyrics .translate .wiki\n👑 .owner .broad .chreact .update .restart .gc\nℹ️ .settings .ping .menu\n\n> ${BOT_NAME}` }, { quoted: msg });
 }, { public: true });
-
+        
 console.log(`✅ ${COMMANDS.size} commands registered\n`);
 
 // ============ BAILEYS WHATSAPP ============
@@ -446,11 +445,12 @@ app.get('/', (req, res) => {
     }
 });
 
-// API endpoints
+// API - Status
 app.get('/api/status', (req, res) => {
     res.json({ online: !!sock?.user, activeBots: 1, totalUsers: 1 });
 });
 
+// API - Pair Code
 app.post('/api/pair', async (req, res) => {
     try {
         const { phone } = req.body;
@@ -471,11 +471,13 @@ app.post('/api/pair', async (req, res) => {
     }
 });
 
+// API - Pair Status
 app.get('/api/pair/:userId', (req, res) => {
     if (currentCode && req.params.userId === currentUserId) res.json({ status: 'success', code: currentCode });
     else res.json({ status: 'pending' });
 });
 
+// API - QR Request
 app.post('/api/qr/request', async (req, res) => {
     const userId = Date.now().toString();
     qrStore.set(userId, { status: 'pending', qr: null });
@@ -483,18 +485,20 @@ app.post('/api/qr/request', async (req, res) => {
     res.json({ success: true, userId });
 });
 
+// API - QR Status
 app.get('/api/qr/:userId', (req, res) => {
     const data = qrStore.get(req.params.userId);
     if (data) res.json(data);
     else res.json({ status: 'pending' });
 });
 
+// API - Logout
 app.post('/api/logout', async (req, res) => {
     try { if (sock) await sock.logout(); res.json({ success: true }); }
     catch (e) { res.json({ success: false, error: e.message }); }
 });
 
-// ============ START ============
+// ============ START SERVER ============
 const PORT = process.env.PORT || 80;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web: http://0.0.0.0:${PORT}`);
