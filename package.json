@@ -6,7 +6,7 @@
     "start": "node --max-old-space-size=200 --optimize-for-size index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.16",
+    "@whiskeysockets/baileys": "6.6.0",
     "axios": "^1.18.1",
     "cheerio": "^1.2.0",
     "dotenv": "^16.6.1",
