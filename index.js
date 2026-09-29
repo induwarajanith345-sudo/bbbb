@@ -1,174 +1,150 @@
-// 🔥 HACKER PRO ULTRA — Fully Fixed Baileys Pair Bot + Web Portal
-require('dotenv').config();
-const express = require('express');
+// 🔥 HACKER PRO ULTRA — BOOTSTRAP (Auto-Fix All Files)
+// මේ file එක run කරාම හැම file එකක්ම auto-create වෙනවා
+// ඊට පස්සේ මේකම clean loader එකක් විදිහට rewrite වෙනවා
+
 const fs = require('fs-extra');
-const pino = require('pino');
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-    fetchLatestBaileysVersion
-} = require('@whiskeysockets/baileys');
+const path = require('path');
 
-// ============ SETTINGS ============
-let settings = { ownerNumber: '94760601455', botName: 'Hacker Pro Md' };
-try { settings = { ...settings, ...require('./settings.js') }; console.log('✅ settings loaded'); } catch {}
-const OWNER_NUMBER = settings.ownerNumber;
-const BOT_NAME = settings.botName;
-const TELEGRAM_TOKEN = process.env.TG_TOKEN || '8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw';
+console.log('🚀 BOOTSTRAP MODE — Auto-creating all files...\n');
+
+const FILES = {
+
+// ============ settings.js ============
+'settings.js': String.raw`module.exports = {
+    ownerNumber: process.env.OWNER_NUMBER || '94760601455',
+    botName: 'Hacker Pro Md',
+    ownerName: 'Hacker Pro',
+    prefix: '.',
+    port: process.env.PORT || 3000,
+    tgToken: process.env.TG_TOKEN || '8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw',
+    giphyApiKey: process.env.GIPHY_API_KEY || 'dc6zaTOxFJmzC'
+};
+`,
+
+// ============ lib/helpers.js ============
+'lib/helpers.js': String.raw`const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function safeJson(url) {
+    try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 20000);
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: c.signal });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { return null; }
+}
+
+module.exports = { getRAM, sleep, safeJson };
+`,
+
+// ============ lib/auth.js ============
+'lib/auth.js': String.raw`const fs = require('fs-extra');
 const AUTH_DIR = './auth_info';
-const CREDS_FILE = `${AUTH_DIR}/creds.json`;
+const CREDS_FILE = AUTH_DIR + '/creds.json';
 
-// ============ ERROR HANDLERS ============
-process.on('uncaughtException', (e) => console.error('🛡️ Uncaught:', e?.message || e));
-process.on('unhandledRejection', (e) => console.error('🛡️ Unhandled:', e?.message || e));
-
-const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
-console.log(`💾 [RAM] ${getRAM()} MB`);
-
-// ============ AUTH HELPERS ============
 function ensureAuthDir() {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
-// 🔥 KEY FIX: folder delete නොකර creds.json එකට empty {} write කරනවා
 function resetCreds() {
     try {
         ensureAuthDir();
-        // creds.json → empty object (Baileys fresh session කියලා හඳුනාගන්නවා)
         fs.writeFileSync(CREDS_FILE, JSON.stringify({}));
-        // අනිත් session files ඔක්කොම delete (creds.json එක තියලා)
         fs.readdirSync(AUTH_DIR).forEach(f => {
-            if (f !== 'creds.json') {
-                try { fs.unlinkSync(`${AUTH_DIR}/${f}`); } catch {}
-            }
+            if (f !== 'creds.json') { try { fs.unlinkSync(AUTH_DIR + '/' + f); } catch {} }
         });
-        console.log('🔄 Creds reset (empty {})');
-    } catch (e) {
-        console.error('Reset error:', e.message);
-    }
+        console.log('🔄 Creds reset');
+    } catch (e) { console.error('Reset:', e.message); }
 }
 
 async function initAuthSession() {
     ensureAuthDir();
-    // SESSION_ID එකක් තියෙනවා නම් restore කරන්න
     if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
         try {
-            const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
-            const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
-            fs.writeFileSync(CREDS_FILE, jsonString);
-            console.log('✅ SESSION_ID Restored successfully!');
-        } catch (err) {
-            console.error('❌ SESSION_ID Restore error:', err.message);
-        }
+            const b64 = process.env.SESSION_ID.replace('HACKERPRO~', '');
+            const json = Buffer.from(b64, 'base64').toString('utf-8');
+            fs.writeFileSync(CREDS_FILE, json);
+            console.log('✅ SESSION_ID restored');
+        } catch (e) { console.error('SESSION:', e.message); }
     }
-    // creds.json නැත්නම් empty create
-    if (!fs.existsSync(CREDS_FILE)) {
-        fs.writeFileSync(CREDS_FILE, JSON.stringify({}));
-    }
+    if (!fs.existsSync(CREDS_FILE)) fs.writeFileSync(CREDS_FILE, JSON.stringify({}));
 }
 
 function isRegistered() {
     try {
         if (!fs.existsSync(CREDS_FILE)) return false;
-        const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8') || '{}');
-        return !!creds.registered;
+        const c = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8') || '{}');
+        return !!c.registered;
     } catch { return false; }
 }
 
 function purgeOldKeys() {
     try {
         if (!fs.existsSync(AUTH_DIR)) return;
-        let count = 0;
-        fs.readdirSync(AUTH_DIR).forEach(file => {
-            if (file.startsWith('pre-key-') || file.startsWith('session-')) {
-                try { fs.unlinkSync(`${AUTH_DIR}/${file}`); count++; } catch {}
+        let n = 0;
+        fs.readdirSync(AUTH_DIR).forEach(f => {
+            if (f.startsWith('pre-key-') || f.startsWith('session-')) {
+                try { fs.unlinkSync(AUTH_DIR + '/' + f); n++; } catch {}
             }
         });
-        if (count > 0) console.log(`🧹 Cleared ${count} old session keys.`);
-    } catch (e) { console.error('Cleanup error:', e.message); }
-}
-setInterval(purgeOldKeys, 1000 * 60 * 60);
-
-// ============ COMMANDS ============
-const COMMANDS = new Map();
-const ALIASES = new Map();
-
-function register(name, aliases, handler, opts = {}) {
-    COMMANDS.set(name.toLowerCase(), { handler, opts });
-    (aliases || []).forEach(a => ALIASES.set(a.toLowerCase(), name.toLowerCase()));
+        if (n) console.log('🧹 Cleared ' + n + ' keys');
+    } catch {}
 }
 
-register('ping', ['speed'], async (c) => {
-    const { sock, from, msg } = c;
-    const t = Date.now();
-    const s = await sock.sendMessage(from, { text: '🏓 Pong!' }, { quoted: msg });
-    await sock.sendMessage(from, { text: `⚡ Speed: ${Date.now() - t}ms\n💾 RAM: ${getRAM()} MB`, edit: s.key });
-}, { public: true });
+module.exports = { AUTH_DIR, CREDS_FILE, ensureAuthDir, resetCreds, initAuthSession, isRegistered, purgeOldKeys };
+`,
 
-register('settings', ['config'], async (c) => {
-    const { sock, from, msg } = c;
-    const up = process.uptime();
-    const hrs = Math.floor(up / 3600);
-    const mins = Math.floor((up % 3600) / 60);
-    await sock.sendMessage(from, { text: `⚙️ *${BOT_NAME} Settings*\n📱 Owner: +${OWNER_NUMBER}\n⏱️ Uptime: ${hrs}h ${mins}m\n💾 RAM: ${getRAM()} MB` }, { quoted: msg });
-}, { public: true });
+// ============ lib/socket.js ============
+'lib/socket.js': String.raw`const pino = require('pino');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
+const { AUTH_DIR, initAuthSession, resetCreds } = require('./auth');
+const { sleep } = require('./helpers');
 
-register('menu', ['help'], async (c) => {
-    const { sock, from, msg } = c;
-    await sock.sendMessage(from, { text: `🔥 *${BOT_NAME}* 🔥\n\n📌 Commands:\n.ping\n.settings\n.owner` }, { quoted: msg });
-}, { public: true });
-
-register('owner', ['creator'], async (c) => {
-    const { sock, from, msg } = c;
-    await sock.sendMessage(from, { text: `👑 *Owner:* +${OWNER_NUMBER}` }, { quoted: msg });
-}, { public: true });
-
-// ============ SOCKET MANAGEMENT ============
 let sock = null;
 let isConnected = false;
 let isStarting = false;
 let reconnectTimer = null;
 let pairingInProgress = false;
-let keepAlive = false; // 🔥 pair වෙනකොට auto-reconnect off
+let keepAlive = false;
+
 const logger = pino({ level: 'silent' });
+
+const state = {
+    get sock() { return sock; },
+    get isConnected() { return isConnected; },
+    get pairing() { return pairingInProgress; },
+    set pairing(v) { pairingInProgress = v; },
+    set keepAlive(v) { keepAlive = v; }
+};
 
 async function killSocket() {
     if (!sock) return;
     try { sock.ev.removeAllListeners(); } catch {}
     try { sock.ws?.close(); } catch {}
     try { sock.end(undefined); } catch {}
-    sock = null;
-    isConnected = false;
-    await new Promise(r => setTimeout(r, 800));
+    sock = null; isConnected = false;
+    await sleep(800);
 }
 
-async function startSock() {
-    if (isStarting) {
-        console.log('⏳ Socket already starting...');
-        // wait for it
-        let waited = 0;
-        while (isStarting && waited < 10000) {
-            await new Promise(r => setTimeout(r, 500));
-            waited += 500;
-        }
-        return sock;
-    }
-
+async function startSock(onMessage) {
+    if (isStarting) { await sleep(2000); return sock; }
     isStarting = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-
-    // පරණ socket kill කරන්න
     await killSocket();
-
     await initAuthSession();
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+    const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
     sock = makeWASocket({
-        version,
-        auth: state,
-        logger,
+        version, auth: authState, logger,
         printQRInTerminal: false,
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         syncFullHistory: false,
@@ -182,120 +158,432 @@ async function startSock() {
     sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
         if (connection === 'open') {
             console.log('✅ WhatsApp Connected!');
-            isConnected = true;
-            pairingInProgress = false;
-            keepAlive = true;
+            isConnected = true; pairingInProgress = false; keepAlive = true;
         }
-
         if (connection === 'close') {
             isConnected = false;
             const code = lastDisconnect?.error?.output?.statusCode;
-            console.log(`❌ Socket Closed (Code: ${code})`);
-
-            // Logged out → reset creds (folder delete නෑ)
+            console.log('❌ Socket Closed (' + code + ')');
             if (code === DisconnectReason.loggedOut || code === 401) {
-                console.log('🧹 Logged out → resetting creds');
-                resetCreds();
-                keepAlive = false;
+                resetCreds(); keepAlive = false;
             }
-
-            // Pair වෙන අතරේ auto-reconnect නවත්තන්න
-            if (keepAlive && !pairingInProgress) {
-                reconnectTimer = setTimeout(() => startSock(), 5000);
-            }
+            if (keepAlive && !pairingInProgress) reconnectTimer = setTimeout(() => startSock(onMessage), 5000);
         }
     });
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        try {
-            const msg = messages[0];
-            if (!msg?.message || msg.key.fromMe) return;
-            const from = msg.key.remoteJid;
-            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-            if (!text.startsWith('.')) return;
+    if (typeof onMessage === 'function') {
+        sock.ev.on('messages.upsert', onMessage);
+    }
 
-            const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
-            const cmd = COMMANDS.get(cmdName.toLowerCase()) || COMMANDS.get(ALIASES.get(cmdName.toLowerCase()));
-
-            if (cmd) {
-                await cmd.handler({ sock, from, msg, args, text: args.join(' '), OWNER_NUMBER, BOT_NAME });
-            }
-        } catch (e) { console.error('Msg error:', e.message); }
-    });
-
-    // Socket create උනාට පස්සේ ටිකක් ඉඩ දෙන්න
-    await new Promise(r => setTimeout(r, 1500));
+    await sleep(1500);
     isStarting = false;
     return sock;
 }
 
-// ============ PAIR CODE ============
+function getSock() { return sock; }
+
+module.exports = { startSock, killSocket, getSock, state };
+`,
+
+// ============ lib/pairing.js ============
+'lib/pairing.js': String.raw`const { isRegistered, resetCreds } = require('./auth');
+const { startSock, killSocket, getSock, state } = require('./socket');
+const { sleep } = require('./helpers');
+
 async function getPairCode(phone) {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     if (!cleanPhone || cleanPhone.length < 10) {
         throw new Error('Valid phone number එකක් දෙන්න (උදා: 94760601455)');
     }
+    if (state.isConnected) throw new Error('WhatsApp දැනටමත් connect වී ඇත!');
+    if (state.pairing) throw new Error('Pair code එකක් දැනටමත් generate වෙමින් පවතී.');
 
-    if (isConnected) {
-        throw new Error('WhatsApp දැනටමත් connect වී ඇත!');
-    }
-
-    if (pairingInProgress) {
-        throw new Error('Pair code එකක් දැනටමත් generate වෙමින් පවතී. තප්පර 30ක් ඉන්න.');
-    }
-
-    pairingInProgress = true;
-    keepAlive = false; // auto-reconnect off
+    state.pairing = true;
+    state.keepAlive = false;
 
     try {
-        // 🔥 Already registered නම් → creds empty කරන්න (folder delete නෑ)
-        if (isRegistered()) {
-            console.log('⚠️ Session already registered → resetting creds...');
-            resetCreds();
-        }
-
-        // පරණ socket kill
+        if (isRegistered()) { console.log('⚠️ Already registered → reset'); resetCreds(); }
         await killSocket();
-
-        // Fresh socket හදන්න
-        console.log('🔧 Creating fresh socket for pair code...');
+        console.log('🔧 Creating fresh socket...');
         await startSock();
+        await sleep(2500);
 
-        // Socket ready වෙන්න ඉන්නවා
-        await new Promise(r => setTimeout(r, 2500));
+        const sock = getSock();
+        if (!sock) throw new Error('Socket init fail');
+        if (sock.authState?.creds?.registered) throw new Error('Session reset fail');
 
-        if (!sock) throw new Error('Socket init fail. ආයෙ try කරන්න.');
-
-        // Double-check — registered නම් fail
-        if (sock.authState?.creds?.registered) {
-            throw new Error('Session reset fail. ආයෙ try කරන්න.');
-        }
-
-        console.log(`🔑 Requesting pair code for ${cleanPhone}...`);
+        console.log('🔑 Requesting pair code for ' + cleanPhone + '...');
         const code = await sock.requestPairingCode(cleanPhone);
-        console.log(`✅ Pair code: ${code}`);
+        console.log('✅ Pair code: ' + code);
 
-        // Pair වෙනකන් wait කරන්න — 60s
-        setTimeout(() => {
-            pairingInProgress = false;
-            keepAlive = true;
-            console.log('🔓 Pairing lock released');
-        }, 60000);
-
+        setTimeout(() => { state.pairing = false; state.keepAlive = true; }, 60000);
         return code?.match(/.{1,4}/g)?.join('-') || code;
-
     } catch (e) {
-        pairingInProgress = false;
-        keepAlive = true;
-        console.error('Pair error:', e.message);
+        state.pairing = false;
+        state.keepAlive = true;
         throw e;
     }
 }
 
-// ============ TELEGRAM BOT ============
+module.exports = { getPairCode };
+`,
+
+// ============ lib/isOwner.js ============
+'lib/isOwner.js': String.raw`const settings = require('../settings');
+
+module.exports = function isOwner(jid) {
+    if (!jid) return false;
+    const num = jid.split('@')[0].split(':')[0];
+    return num === settings.ownerNumber;
+};
+`,
+
+// ============ lib/isAdmin.js ============
+'lib/isAdmin.js': String.raw`async function isAdmin(sock, groupJid, userJid) {
+    try {
+        if (!groupJid?.endsWith('@g.us')) return false;
+        const metadata = await sock.groupMetadata(groupJid);
+        const participant = metadata.participants.find(p => p.id === userJid || p.id.split('@')[0] === userJid.split('@')[0]);
+        if (!participant) return false;
+        return participant.admin === 'admin' || participant.admin === 'superadmin';
+    } catch { return false; }
+}
+
+module.exports = { isAdmin };
+`,
+
+// ============ lib/lightweight_store.js ============
+'lib/lightweight_store.js': String.raw`const store = {
+    messages: {},
+    contacts: {},
+    chats: {},
+    saveMessage(jid, msg) {
+        if (!this.messages[jid]) this.messages[jid] = [];
+        this.messages[jid].push(msg);
+        if (this.messages[jid].length > 50) this.messages[jid].shift();
+    },
+    getMessage(jid) { return this.messages[jid] || []; }
+};
+
+module.exports = store;
+`,
+
+// ============ lib/exif.js ============
+'lib/exif.js': String.raw`module.exports = {
+    writeExif: async (buffer) => buffer,
+    addExif: async (buffer) => buffer
+};
+`,
+
+// ============ lib/converter.js ============
+'lib/converter.js': String.raw`const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs-extra');
+const path = require('path');
+const os = require('os');
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+async function toAudio(buffer, ext = 'mp4') {
+    const tmpIn = path.join(os.tmpdir(), 'in_' + Date.now() + '.' + ext);
+    const tmpOut = path.join(os.tmpdir(), 'out_' + Date.now() + '.mp3');
+    await fs.writeFile(tmpIn, buffer);
+    return new Promise((resolve, reject) => {
+        ffmpeg(tmpIn).toFormat('mp3').on('end', async () => {
+            const out = await fs.readFile(tmpOut);
+            fs.unlink(tmpIn).catch(() => {});
+            fs.unlink(tmpOut).catch(() => {});
+            resolve(out);
+        }).on('error', reject).save(tmpOut);
+    });
+}
+
+module.exports = { toAudio };
+`,
+
+// ============ lib/uploadImage.js ============
+'lib/uploadImage.js': String.raw`const FormData = require('form-data');
+const axios = require('axios');
+
+async function uploadImage(buffer) {
+    try {
+        const form = new FormData();
+        form.append('file', buffer, { filename: 'image.jpg' });
+        const res = await axios.post('https://telegra.ph/upload', form, {
+            headers: form.getHeaders()
+        });
+        if (res.data?.[0]?.src) return 'https://telegra.ph' + res.data[0].src;
+        return null;
+    } catch { return null; }
+}
+
+module.exports = { uploadImage };
+`,
+
+// ============ lib/welcome.js ============
+'lib/welcome.js': String.raw`async function sendWelcome(sock, groupJid, participant) {
+    try {
+        await sock.sendMessage(groupJid, {
+            text: '👋 Welcome @' + participant.split('@')[0] + '!',
+            mentions: [participant]
+        });
+    } catch (e) { console.error('Welcome error:', e.message); }
+}
+
+async function sendGoodbye(sock, groupJid, participant) {
+    try {
+        await sock.sendMessage(groupJid, {
+            text: '👋 Goodbye @' + participant.split('@')[0],
+            mentions: [participant]
+        });
+    } catch (e) { console.error('Goodbye error:', e.message); }
+}
+
+module.exports = { sendWelcome, sendGoodbye };
+`,
+
+// ============ lib/messageConfig.js ============
+'lib/messageConfig.js': String.raw`module.exports = {
+    welcomeEnabled: true,
+    goodbyeEnabled: true,
+    antiLinkEnabled: false,
+    antiCallEnabled: false,
+    antiDeleteEnabled: false,
+    autoReactEnabled: false
+};
+`,
+
+// ============ lib/index.js ============
+'lib/index.js': String.raw`module.exports = {
+    ...require('./helpers'),
+    ...require('./auth'),
+    ...require('./socket'),
+    ...require('./pairing'),
+    ...require('./welcome'),
+    ...require('./converter'),
+    ...require('./uploadImage')
+};
+`,
+
+// ============ commands/index.js ============
+'commands/index.js': String.raw`const fs = require('fs');
+const path = require('path');
+
+const COMMANDS = new Map();
+const ALIASES = new Map();
+
+function loadCommands() {
+    const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.js') && f !== 'index.js');
+    for (const file of files) {
+        try {
+            const mod = require(path.join(__dirname, file));
+            const name = file.replace('.js', '');
+
+            if (typeof mod === 'function') {
+                COMMANDS.set(name, { handler: mod, opts: {} });
+                console.log('📦 Loaded: ' + name);
+            }
+            else if (mod.name && typeof mod.handler === 'function') {
+                COMMANDS.set(mod.name, { handler: mod.handler, opts: {} });
+                (mod.aliases || []).forEach(a => ALIASES.set(a, mod.name));
+                console.log('📦 Loaded: ' + mod.name);
+            }
+        } catch (e) {
+            console.error('❌ Failed ' + file + ': ' + e.message);
+        }
+    }
+    return COMMANDS.size;
+}
+
+function getCommand(name) {
+    const key = name.toLowerCase();
+    if (COMMANDS.has(key)) return COMMANDS.get(key);
+    if (ALIASES.has(key)) return COMMANDS.get(ALIASES.get(key));
+    return null;
+}
+
+module.exports = { loadCommands, getCommand, COMMANDS };
+`,
+
+// ============ commands/ping.js ============
+'commands/ping.js': String.raw`const { getRAM } = require('../lib/helpers');
+
+module.exports = {
+    name: 'ping',
+    aliases: ['speed'],
+    handler: async ({ sock, from, msg }) => {
+        const t = Date.now();
+        const s = await sock.sendMessage(from, { text: '🏓 Pong!' }, { quoted: msg });
+        await sock.sendMessage(from, {
+            text: '⚡ Speed: ' + (Date.now() - t) + 'ms\n💾 RAM: ' + getRAM() + ' MB',
+            edit: s.key
+        });
+    }
+};
+`,
+
+// ============ commands/menu.js ============
+'commands/menu.js': String.raw`const settings = require('../settings');
+
+module.exports = {
+    name: 'menu',
+    aliases: ['help'],
+    handler: async ({ sock, from, msg }) => {
+        await sock.sendMessage(from, {
+            text: '🔥 *' + settings.botName + '* 🔥\n\n📌 Commands:\n.ping\n.settings\n.owner'
+        }, { quoted: msg });
+    }
+};
+`,
+
+// ============ commands/settings.js ============
+'commands/settings.js': String.raw`const settings = require('../settings');
+const { getRAM } = require('../lib/helpers');
+
+module.exports = {
+    name: 'settings',
+    aliases: ['config'],
+    handler: async ({ sock, from, msg }) => {
+        const up = process.uptime();
+        const hrs = Math.floor(up / 3600);
+        const mins = Math.floor((up % 3600) / 60);
+        await sock.sendMessage(from, {
+            text: '⚙️ *' + settings.botName + ' Settings*\n📱 Owner: +' + settings.ownerNumber + '\n⏱️ Uptime: ' + hrs + 'h ' + mins + 'm\n💾 RAM: ' + getRAM() + ' MB'
+        }, { quoted: msg });
+    }
+};
+`,
+
+// ============ commands/owner.js ============
+'commands/owner.js': String.raw`const settings = require('../settings');
+
+module.exports = {
+    name: 'owner',
+    aliases: ['creator'],
+    handler: async ({ sock, from, msg }) => {
+        await sock.sendMessage(from, { text: '👑 *Owner:* +' + settings.ownerNumber }, { quoted: msg });
+    }
+};
+`,
+
+// ============ web/server.js ============
+'web/server.js': String.raw`const express = require('express');
+const path = require('path');
+const settings = require('../settings');
+
+function startWeb() {
+    const app = express();
+    app.use(express.json());
+    app.use(express.static(path.join(__dirname, 'public')));
+
+    app.post('/api/pair', async (req, res) => {
+        try {
+            const phone = req.body.phone || req.query.phone || '';
+            const code = await global.generatePairCode('web', phone);
+            if (!code) return res.status(500).json({ success: false, error: 'No code generated' });
+            res.json({ success: true, code });
+        } catch (e) {
+            res.status(500).json({ success: false, error: e.message });
+        }
+    });
+
+    app.get('/pair', async (req, res) => {
+        try {
+            const code = await global.generatePairCode('web', req.query.phone || '');
+            if (!code) return res.status(500).json({ success: false, error: 'No code generated' });
+            res.json({ success: true, code });
+        } catch (e) {
+            res.status(500).json({ success: false, error: e.message });
+        }
+    });
+
+    app.get('/reset', async (req, res) => {
+        try {
+            await global.resetSession();
+            res.json({ success: true, message: 'Session reset complete' });
+        } catch (e) {
+            res.status(500).json({ success: false, error: e.message });
+        }
+    });
+
+    app.get('/status', (req, res) => {
+        res.json(global.getStatus());
+    });
+
+    app.listen(settings.port, () => console.log('🌐 Web active on port ' + settings.port));
+}
+
+module.exports = { startWeb };
+`,
+
+// ============ web/public/index.html ============
+'web/public/index.html': String.raw`<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HACKER PRO PAIRING PORTAL</title>
+<style>
+*{box-sizing:border-box}
+body{background:#0a0e1a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:15px}
+.box{background:#131b2e;padding:25px;border-radius:15px;border:1px solid #1f2d4d;width:100%;max-width:400px;text-align:center}
+h2{color:#00d2ff;margin:0 0 20px;font-size:20px}
+input{width:100%;padding:12px;margin-bottom:12px;border-radius:8px;border:1px solid #2a3b5c;background:#0a0e1a;color:#fff;text-align:center;font-size:16px}
+button{width:100%;padding:12px;border-radius:8px;border:none;background:#00d2ff;color:#000;font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:8px}
+button.alt{background:#2a3b5c;color:#fff}
+button:disabled{opacity:.5}
+.res{margin-top:15px;font-size:22px;font-family:monospace;color:#00ff88;letter-spacing:2px;min-height:30px;word-break:break-all}
+.st{font-size:12px;color:#8899bb;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>⚡ PAIR CODE GENERATOR</h2>
+<input type="tel" id="phone" placeholder="94760601455 (no +)">
+<button id="btn" onclick="go()">GET PAIR CODE</button>
+<button class="alt" onclick="rst()">RESET SESSION</button>
+<div class="res" id="r"></div>
+<div class="st" id="s">Loading...</div>
+</div>
+<script>
+const r=document.getElementById('r'),b=document.getElementById('btn');
+async function go(){
+  const p=document.getElementById('phone').value.trim();
+  if(!p){r.style.color='#ff4757';r.innerText='Phone number දාන්න';return}
+  r.style.color='#00d2ff';r.innerText='GENERATING...';b.disabled=true;
+  try{
+    const x=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
+    const d=await x.json();
+    if(d.code){r.style.color='#00ff88';r.innerText=d.code}
+    else{r.style.color='#ff4757';r.innerText=d.error||'Failed'}
+  }catch(e){r.style.color='#ff4757';r.innerText='Server Error'}
+  b.disabled=false;
+}
+async function rst(){
+  r.style.color='#ffa500';r.innerText='RESETTING...';
+  try{
+    const x=await fetch('/reset');const d=await x.json();
+    r.style.color=d.success?'#00ff88':'#ff4757';
+    r.innerText=d.success?'SESSION CLEARED ✓':(d.error||'Failed');
+  }catch(e){r.style.color='#ff4757';r.innerText='Server Error'}
+}
+setInterval(async()=>{
+  try{
+    const x=await fetch('/status');const d=await x.json();
+    document.getElementById('s').innerText=
+      (d.connected?'🟢 Connected':(d.pairing?'🟡 Pairing...':'🔴 Not connected'))+' | RAM: '+d.ram+'MB';
+  }catch(e){}
+},4000);
+</script>
+</body>
+</html>
+`,
+
+// ============ telegram/bot.js ============
+'telegram/bot.js': String.raw`const settings = require('../settings');
+
 async function sendTgMessage(chatId, text) {
     try {
-        await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+        await fetch('https://api.telegram.org/bot' + settings.tgToken + '/sendMessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' })
@@ -303,11 +591,15 @@ async function sendTgMessage(chatId, text) {
     } catch {}
 }
 
-async function startTelegramBot() {
+async function startTelegram() {
+    if (!settings.tgToken || settings.tgToken === 'YOUR_TOKEN') {
+        console.log('⚠️ No Telegram token — skipping');
+        return;
+    }
     let offset = 0;
     while (true) {
         try {
-            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates?offset=${offset}&timeout=20`);
+            const res = await fetch('https://api.telegram.org/bot' + settings.tgToken + '/getUpdates?offset=' + offset + '&timeout=20');
             const data = await res.json();
             if (data.ok && data.result.length > 0) {
                 for (const update of data.result) {
@@ -318,22 +610,23 @@ async function startTelegramBot() {
                     const text = msg.text.trim();
 
                     if (text === '/start') {
-                        await sendTgMessage(chatId, `⚡ *${BOT_NAME} Pair Bot*\n\n/pair 94760601455\n/reset`);
+                        await sendTgMessage(chatId, '⚡ *' + settings.botName + ' Pair Bot*\n\n/pair 94760601455\n/reset');
                     } else if (text.startsWith('/pair')) {
                         const phone = text.split(/\s+/)[1];
                         if (!phone) { await sendTgMessage(chatId, '⚠️ `/pair 94760601455`'); continue; }
                         await sendTgMessage(chatId, '⏳ Generating Pair Code...');
                         try {
-                            const code = await getPairCode(phone);
-                            await sendTgMessage(chatId, `🎉 *Your Pair Code:*\n\n\`${code}\`\n\n📱 WhatsApp → Linked Devices → Link with Phone Number`);
+                            const code = await global.generatePairCode(String(chatId), phone);
+                            if (code) {
+                                await sendTgMessage(chatId, '🎉 *Your Pair Code:*\n\n\`' + code + '\`\n\n📱 WhatsApp → Linked Devices → Link with Phone Number');
+                            } else {
+                                await sendTgMessage(chatId, '❌ Pair code generate fail');
+                            }
                         } catch (err) {
-                            await sendTgMessage(chatId, `❌ *Error:* ${err.message}`);
+                            await sendTgMessage(chatId, '❌ *Error:* ' + err.message);
                         }
                     } else if (text === '/reset') {
-                        resetCreds();
-                        await killSocket();
-                        pairingInProgress = false;
-                        keepAlive = false;
+                        await global.resetSession();
                         await sendTgMessage(chatId, '✅ Session reset. දැන් `/pair` යවන්න.');
                     }
                 }
@@ -341,141 +634,134 @@ async function startTelegramBot() {
         } catch { await new Promise(r => setTimeout(r, 4000)); }
     }
 }
-startTelegramBot();
 
-// ============ WEB PORTAL ============
-const app = express();
-app.use(express.json());
+module.exports = { startTelegram };
+`
+};
 
-app.post('/api/pair', async (req, res) => {
-    try {
-        const phone = req.body.phone || req.query.phone || '';
-        const code = await getPairCode(phone);
-        return res.json({ success: true, code });
-    } catch (e) {
-        return res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-app.get('/pair', async (req, res) => {
-    try {
-        const phone = req.query.phone || '';
-        const code = await getPairCode(phone);
-        return res.json({ success: true, code });
-    } catch (e) {
-        return res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-app.get('/reset', async (req, res) => {
-    try {
-        resetCreds();
-        await killSocket();
-        pairingInProgress = false;
-        keepAlive = false;
-        res.json({ success: true, message: 'Session reset complete' });
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-app.get('/status', (req, res) => {
-    res.json({
-        connected: isConnected,
-        pairing: pairingInProgress,
-        registered: isRegistered(),
-        uptime: process.uptime(),
-        ram: getRAM()
-    });
-});
-
-app.get('/', (req, res) => {
-    res.send(`<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HACKER PRO PAIRING PORTAL</title>
-<style>
-*{box-sizing:border-box}
-body{background:#0a0e1a;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:15px}
-.box{background:#131b2e;padding:25px;border-radius:15px;border:1px solid #1f2d4d;width:100%;max-width:400px;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,.5)}
-h2{color:#00d2ff;margin:0 0 20px;font-size:20px}
-input{width:100%;padding:12px;margin-bottom:12px;border-radius:8px;border:1px solid #2a3b5c;background:#0a0e1a;color:#fff;text-align:center;font-size:16px}
-button{width:100%;padding:12px;border-radius:8px;border:none;background:#00d2ff;color:#000;font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:8px}
-button:disabled{opacity:.5;cursor:not-allowed}
-button.alt{background:#2a3b5c;color:#fff}
-.res{margin-top:15px;font-size:22px;font-family:monospace;color:#00ff88;letter-spacing:2px;min-height:30px;word-break:break-all}
-.status{font-size:12px;color:#8899bb;margin-top:10px}
-</style>
-</head>
-<body>
-<div class="box">
-<h2>⚡ PAIR CODE GENERATOR</h2>
-<input type="tel" id="phone" placeholder="94760601455 (no +)" value="">
-<button id="btnPair" onclick="requestPair()">GET PAIR CODE</button>
-<button class="alt" onclick="resetSession()">RESET SESSION</button>
-<div class="res" id="result"></div>
-<div class="status" id="status">Loading...</div>
-</div>
-<script>
-const result = document.getElementById('result');
-const btn = document.getElementById('btnPair');
-
-async function requestPair(){
-  const phone = document.getElementById('phone').value.trim();
-  if(!phone){ result.style.color='#ff4757'; result.innerText='Phone number දාන්න'; return; }
-  result.style.color='#00d2ff'; result.innerText='GENERATING...';
-  btn.disabled = true;
-  try{
-    const res = await fetch('/api/pair',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({phone})
-    });
-    const d = await res.json();
-    if(d.code){ result.style.color='#00ff88'; result.innerText=d.code; }
-    else { result.style.color='#ff4757'; result.innerText=d.error||'Failed'; }
-  }catch(e){ result.style.color='#ff4757'; result.innerText='Server Error'; }
-  btn.disabled = false;
-}
-
-async function resetSession(){
-  result.style.color='#ffa500'; result.innerText='RESETTING...';
-  try{
-    const res = await fetch('/reset');
-    const d = await res.json();
-    result.style.color = d.success ? '#00ff88' : '#ff4757';
-    result.innerText = d.success ? 'SESSION CLEARED ✓' : (d.error||'Failed');
-  }catch(e){ result.style.color='#ff4757'; result.innerText='Server Error'; }
-}
-
-setInterval(async()=>{
-  try{
-    const res = await fetch('/status');
-    const d = await res.json();
-    document.getElementById('status').innerText =
-      (d.connected?'🟢 Connected':(d.pairing?'🟡 Pairing...':'🔴 Not connected'))
-      + ' | Reg: ' + (d.registered?'Yes':'No')
-      + ' | RAM: ' + d.ram + 'MB';
-  }catch(e){}
-},4000);
-</script>
-</body>
-</html>`);
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌐 Server active on port ${PORT}`));
-
-// ============ STARTUP ============
+// ============ WRITE ALL FILES ============
 (async () => {
-    console.log('🚀 Starting bot...');
-    // SESSION_ID එකක් තියෙනවා නම් විතරක් auto-connect
+    let created = 0;
+    let updated = 0;
+
+    for (const [file, content] of Object.entries(FILES)) {
+        try {
+            const fullPath = path.join(__dirname, file);
+            const existed = fs.existsSync(fullPath);
+            fs.ensureDirSync(path.dirname(fullPath));
+            fs.writeFileSync(fullPath, content);
+            if (existed) { updated++; console.log('♻️  Updated: ' + file); }
+            else { created++; console.log('✅ Created: ' + file); }
+        } catch (e) {
+            console.error('❌ Failed ' + file + ': ' + e.message);
+        }
+    }
+
+    console.log('\n📊 ' + created + ' created, ' + updated + ' updated');
+
+    // ============ REWRITE index.js AS CLEAN LOADER ============
+    const CLEAN_INDEX = String.raw`// 🔥 HACKER PRO ULTRA — Modular Loader
+require('dotenv').config();
+const settings = require('./settings');
+const { getRAM } = require('./lib/helpers');
+const { loadCommands, getCommand } = require('./commands');
+const { startSock, getSock, state, killSocket } = require('./lib/socket');
+const { startWeb } = require('./web/server');
+const { startTelegram } = require('./telegram/bot');
+const { getPairCode } = require('./lib/pairing');
+const { resetCreds, purgeOldKeys } = require('./lib/auth');
+const { isAdmin } = require('./lib/isAdmin');
+const isOwner = require('./lib/isOwner');
+
+global.botData = {};
+global.saveBotData = () => {};
+global.sessions = {};
+global.generatePairCode = async (userId, phone) => {
+    const code = await getPairCode(phone);
+    if (code) global.sessions[userId] = { pairCode: code, time: Date.now() };
+    return code;
+};
+global.resetSession = async () => {
+    resetCreds();
+    await killSocket();
+    state.pairing = false;
+    state.keepAlive = false;
+};
+global.getStatus = () => ({
+    connected: state.isConnected,
+    pairing: state.pairing,
+    uptime: process.uptime(),
+    ram: getRAM()
+});
+
+process.on('uncaughtException', (e) => console.error('🛡️ Uncaught:', e?.message || e));
+process.on('unhandledRejection', (e) => console.error('🛡️ Unhandled:', e?.message || e));
+
+console.log('💾 [RAM] ' + getRAM() + ' MB');
+console.log('⚙️  Bot: ' + settings.botName);
+
+async function onMessage({ messages }) {
+    try {
+        const msg = messages[0];
+        if (!msg?.message || msg.key.fromMe) return;
+        const from = msg.key.remoteJid;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        if (!text.startsWith(settings.prefix)) return;
+
+        const [cmdName, ...args] = text.slice(settings.prefix.length).trim().split(/\s+/);
+        const cmd = getCommand(cmdName);
+        if (!cmd) return;
+
+        const sock = getSock();
+        if (!sock) return;
+
+        const participant = msg.key.participant || from;
+        let adminUser = false;
+        try { adminUser = await isAdmin(sock, from, participant); } catch {}
+        const ownerUser = isOwner(participant);
+
+        await cmd.handler({
+            sock, from, msg, args,
+            text: args.join(' '),
+            isAdmin: adminUser || ownerUser,
+            ownerNumber: settings.ownerNumber,
+            botName: settings.botName,
+            botData: global.botData,
+            saveBotData: global.saveBotData,
+            userId: participant
+        });
+    } catch (e) { console.error('Msg error:', e.message); }
+}
+
+(async () => {
+    console.log('🚀 Booting...');
+    const count = loadCommands();
+    console.log('✅ ' + count + ' commands loaded');
+
+    startWeb();
+    startTelegram();
+    setInterval(purgeOldKeys, 1000 * 60 * 60);
+
     if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
         console.log('📦 SESSION_ID found → auto-connecting...');
-        keepAlive = true;
-        await startSock();
+        state.keepAlive = true;
+        await startSock(onMessage);
     } else {
         console.log('ℹ️ No SESSION_ID → use /pair to connect');
     }
+})();
+`;
+
+    try {
+        fs.writeFileSync(path.join(__dirname, 'index.js'), CLEAN_INDEX);
+        console.log('\n✨ index.js rewritten as clean loader');
+        console.log('♻️  Restarting bot in 3 seconds...\n');
+    } catch (e) {
+        console.error('❌ Failed to rewrite index.js:', e.message);
+    }
+
+    // Restart process
+    setTimeout(() => {
+        process.exit(0);
+    }, 3000);
 })();
