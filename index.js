@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — Baileys Standalone Edition (Index Only)
+// 🔥 HACKER PRO ULTRA — Baileys Standalone Edition (Index + Telegram Pair Bot)
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -12,6 +12,7 @@ let settings = { ownerNumber: '94760601455', botName: 'Hacker Pro Md' };
 try { settings = { ...settings, ...require('./settings.js') }; console.log('✅ settings loaded'); } catch {}
 let OWNER_NUMBER = settings.ownerNumber;
 const BOT_NAME = settings.botName;
+const TELEGRAM_TOKEN = process.env.TG_TOKEN || '8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw';
 
 // ============ ERROR HANDLERS ============
 process.on('uncaughtException', (e) => console.error('🛡️', e?.message || e));
@@ -26,7 +27,6 @@ async function initAuthSession() {
         fs.mkdirSync('./auth_info', { recursive: true });
     }
     
-    // Environment Variable එකෙන් SESSION_ID Restore කිරීම
     if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
         try {
             const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
@@ -56,7 +56,6 @@ function purgeOldKeys() {
     }
 }
 
-// Storage/RAM පිරෙන එක වැළැක්වීමට සෑම පැයකටම වරක් Auto Clean වීම
 setInterval(purgeOldKeys, 1000 * 60 * 60);
 
 // ============ HELPERS ============
@@ -122,7 +121,7 @@ async function ytDownload(url, mode) {
     return await ytdlp(url, mode);
 }
 
-// ============ BUILT-IN COMMANDS (INDEX ONLY) ============
+// ============ BUILT-IN COMMANDS ============
 const COMMANDS = new Map();
 const ALIASES = new Map();
 
@@ -136,24 +135,24 @@ register('ytmp4', ['ytv', 'video'], async (c) => { const { sock, from, msg, args
 register('fb', ['fbdl'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '📘 .fb <URL>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let dl = null; for (const a of [`https://api.nyxs.pw/dl/facebook?url=${encodeURIComponent(args[0])}`, `https://api.zenkey.my.id/download/facebook?url=${encodeURIComponent(args[0])}`]) { const r = await safeJson(a); dl = pickUrl(r) || r?.download_url || r?.video_hd; if (dl) break; } if (!dl) dl = await ytdlp(args[0], 'video'); if (!dl) throw new Error('නෑ!'); await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 register('tt', ['ttdl'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎵 .tt <URL>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const r = await safeJson(`https://tikwm.com/api/?url=${encodeURIComponent(args[0])}`); let dl = r?.data?.play || r?.data?.hdplay; if (!dl) dl = await ytdlp(args[0], 'video'); if (!dl) throw new Error('නෑ!'); await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 register('ig', ['igdl'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '📸 .ig <URL>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const dl = await ytdlp(args[0], 'video'); if (!dl) throw new Error('නෑ!'); await sock.sendMessage(from, { video: { url: dl }, mimetype: 'video/mp4', caption: `> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
-register('ai', ['gpt', 'chat'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🤖 .ai <q>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🤔...' }, { quoted: msg }); try { let ans = null; for (const a of [`https://api.nyxs.pw/ai/gpt4?text=${encodeURIComponent(args.join(' '))}`, `https://api.zenkey.my.id/ai/gpt?q=${encodeURIComponent(args.join(' '))}`]) { const r = await safeJson(a); ans = r?.result || r?.data || r?.answer; if (typeof ans === 'object') ans = ans?.text; if (typeof ans === 'string') break; ans = null; } if (!ans) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🤖 ${ans.slice(0, 3000)}\n\n> ${BOT_NAME}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
-register('imagine', ['img', 'gen'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎨 .imagine <prompt>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🎨...' }, { quoted: msg }); try { const img = `https://image.pollinations.ai/prompt/${encodeURIComponent(args.join(' '))}?width=1024&height=1024&nologo=true&seed=${Date.now()}`; await sock.sendMessage(from, { image: { url: img }, caption: `🎨 ${args.join(' ')}\n\n> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
-register('weather', ['wthr'], async (c) => { const { sock, from, msg, args } = c; const city = args.join(' ') || 'Colombo'; const s = await sock.sendMessage(from, { text: `🔄 ${city}...` }, { quoted: msg }); try { const r = await safeJson(`https://wttr.in/${encodeURIComponent(city)}?format=j1`); const cc = r?.current_condition?.[0]; if (!cc) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🌤️ *${city}*\n\n🌡️ ${cc.temp_C}°C\n☁️ ${cc.weatherDesc[0].value}\n💧 ${cc.humidity}%\n\n> ${BOT_NAME}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
-register('meme', ['memes'], async (c) => { const { sock, from, msg } = c; const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const r = await safeJson('https://meme-api.com/gimme'); if (!r?.url) throw new Error('නෑ!'); await sock.sendMessage(from, { image: { url: r.url }, caption: `😂 ${r.title}\n\n> ${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
-register('joke', ['jokes'], async (c) => { const { sock, from, msg } = c; try { const r = await safeJson('https://official-joke-api.appspot.com/random_joke'); if (!r?.setup) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `😄 ${r.setup}\n\n||${r.punchline}||` }, { quoted: msg }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg }); } }, { public: true });
+register('ai', ['gpt', 'chat'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🤖 .ai <q>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🤔...' }, { quoted: msg }); try { let ans = null; for (const a of [`https://api.nyxs.pw/ai/gpt4?text=${encodeURIComponent(args.join(' '))}`, `https://api.zenkey.my.id/ai/gpt?q=${encodeURIComponent(args.join(' '))}`]) { const r = await safeJson(a); ans = r?.result || r?.data || r?.answer; if (typeof ans === 'object') ans = ans?.text; if (typeof ans === 'string') break; ans = null; } if (!ans) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🤖 ${ans.slice(0, 3000)}\n\n>${BOT_NAME}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
+register('imagine', ['img', 'gen'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎨 .imagine <prompt>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🎨...' }, { quoted: msg }); try { const img = `https://image.pollinations.ai/prompt/${encodeURIComponent(args.join(' '))}?width=1024&height=1024&nologo=true&seed=${Date.now()}`; await sock.sendMessage(from, { image: { url: img }, caption: `🎨 ${args.join(' ')}\n\n>${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
+register('weather', ['wthr'], async (c) => { const { sock, from, msg, args } = c; const city = args.join(' ') || 'Colombo'; const s = await sock.sendMessage(from, { text: `🔄 ${city}...` }, { quoted: msg }); try { const r = await safeJson(`https://wttr.in/${encodeURIComponent(city)}?format=j1`); const cc = r?.current_condition?.[0]; if (!cc) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🌤️ *${city}*\n\n🌡️ ${cc.temp_C}°C\n☁️ ${cc.weatherDesc[0].value}\n💧 ${cc.humidity}\%\n\n>${BOT_NAME}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
+register('meme', ['memes'], async (c) => { const { sock, from, msg } = c; const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const r = await safeJson('https://meme-api.com/gimme'); if (!r?.url) throw new Error('නෑ!'); await sock.sendMessage(from, { image: { url: r.url }, caption: `😂 ${r.title}\n\n>${BOT_NAME}` }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
+register('joke', ['jokes'], async (c) => { const { sock, from, msg } = c; try { const r = await safeJson('https://official-joke-api.appspot.com/random_joke'); if (!r?.setup) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `😄 ${r.setup}\n\n\vert{}\vert{}${r.punchline}||` }, { quoted: msg }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg }); } }, { public: true });
 register('quote', ['quotes'], async (c) => { const { sock, from, msg } = c; try { const r = await safeJson('https://zenquotes.io/api/random'); const q = r?.[0]; if (!q?.q) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `💬 "${q.q}"\n\n— ${q.a}` }, { quoted: msg }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}` }, { quoted: msg }); } }, { public: true });
-register('wiki', ['wikipedia'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '📚 .wiki <topic>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const r = await safeJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(args.join(' '))}`); if (!r?.extract) throw new Error('නෑ!'); const text = `📚 *${r.title}*\n\n${r.extract.slice(0, 1500)}\n\n> ${BOT_NAME}`; if (r.thumbnail?.source) await sock.sendMessage(from, { image: { url: r.thumbnail.source }, caption: text }, { quoted: msg }); else await sock.sendMessage(from, { text, edit: s.key }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
+register('wiki', ['wikipedia'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '📚 .wiki <topic>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { const r = await safeJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(args.join(' '))}`); if (!r?.extract) throw new Error('නෑ!'); const text = `📚 *${r.title}*\n\n${r.extract.slice(0, 1500)}\n\n>${BOT_NAME}`; if (r.thumbnail?.source) await sock.sendMessage(from, { image: { url: r.thumbnail.source }, caption: text }, { quoted: msg }); else await sock.sendMessage(from, { text, edit: s.key }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 register('translate', ['tr'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🌐 .tr si Hello' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let to = 'en', text = args.join(' '); if (args[0].length <= 3) { to = args[0]; text = args.slice(1).join(' '); } const r = await safeJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`); if (!r?.[0]) throw new Error('නෑ!'); await sock.sendMessage(from, { text: `🌐 *${to}*\n\n${r[0].map(x => x[0]).join('')}`, edit: s.key }); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
 register('owner', ['creator'], async (c) => { const { sock, from, msg } = c; try { const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${BOT_NAME} Owner\nTEL:type=CELL;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\nEND:VCARD`; await sock.sendMessage(from, { contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] } }, { quoted: msg }); } catch {} await sock.sendMessage(from, { text: `👑 +${OWNER_NUMBER}` }, { quoted: msg }); }, { public: true });
 register('ping', ['speed'], async (c) => { const { sock, from, msg } = c; const t = Date.now(); const s = await sock.sendMessage(from, { text: '🏓...' }, { quoted: msg }); await sock.sendMessage(from, { text: `⚡ ${Date.now() - t}ms\n💾 ${getRAM()}MB`, edit: s.key }); }, { public: true });
-register('settings', ['config'], async (c) => { const { sock, from, msg } = c; const up = process.uptime(); await sock.sendMessage(from, { text: `⚙️ ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n⏱️ ${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m\n💾 ${getRAM()} MB` }, { quoted: msg }); }, { public: true });
-register('gc', ['ram'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const b = getRAM(); if (global.gc) global.gc(); purgeOldKeys(); await sock.sendMessage(from, { text: `🧹 Memory & Session Cleared:\n${b} → ${getRAM()} MB` }, { quoted: msg }); }, { public: false });
+register('settings', ['config'], async (c) => { const { sock, from, msg } = c; const up = process.uptime(); await sock.sendMessage(from, { text: `⚙️ ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n⏱️ ${Math.floor(up / 3600)}h ${Math.floor(up \% 3600 / 60)}m\n💾 ${getRAM()} MB` }, { quoted: msg }); }, { public: true });
+register('gc', ['ram'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const b = getRAM(); if (global.gc) global.gc(); purgeOldKeys(); await sock.sendMessage(from, { text: `🧹 Memory & Session Cleared:\n${b} →${getRAM()} MB` }, { quoted: msg }); }, { public: false });
 register('update', ['up'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); exec('git pull', { timeout: 60000 }, async (e, out, err) => { if (e) return sock.sendMessage(from, { text: `❌ ${err || e.message}`, edit: s.key }); if (out.includes('Already up to date')) return sock.sendMessage(from, { text: '✅ Up to date!', edit: s.key }); await sock.sendMessage(from, { text: `✅ ${out.slice(0, 500)}`, edit: s.key }); }); }, { public: false });
 register('restart', ['rs'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); await sock.sendMessage(from, { text: '🔄 Restarting in 5s...' }, { quoted: msg }); setTimeout(() => process.exit(0), 5000); }, { public: false });
 register('menu', ['help'], async (c) => { const { sock, from, msg } = c; await sock.sendMessage(from, { text: `🔥 *${BOT_NAME}*\n\n📥 .ytmp3 .ytmp4 .fb .tt .ig\n🤖 .ai .imagine .weather .meme .joke .quote .wiki .translate\n👑 .owner .update .restart .gc\nℹ️ .settings .ping .menu` }, { quoted: msg }); }, { public: true });
 
 // =======================================================
-// 🚀 BAILEYS SOCKET & CONNECTION HANDLING
+// 🚀 BAILEYS SOCKET & PAIRING FUNCTION
 // =======================================================
 let sock = null;
 let latestQR = null;
@@ -161,6 +160,26 @@ let isConnected = false;
 let isStarting = false;
 let qrClients = new Set();
 const logger = pino({ level: 'silent' });
+
+async function generatePairingCode(phone) {
+    let cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+        throw new Error('කරුණාකර නිවැරදි Phone Number එකක් ඇතුළත් කරන්න (උදා: 94760601455)');
+    }
+    if (isConnected) {
+        throw new Error('WhatsApp දැනටමත් සම්බන්ධ වී ඇත!');
+    }
+
+    await startSock({ fresh: true });
+    await new Promise(r => setTimeout(r, 4000));
+
+    if (sock && !sock.authState.creds.registered) {
+        const rawCode = await sock.requestPairingCode(cleanPhone);
+        return rawCode?.match(/.{1,4}/g)?.join('-') || rawCode;
+    } else {
+        throw new Error('Session එක සක්‍රීය කිරීමට නොහැකි විය.');
+    }
+}
 
 async function startSock(options = {}) {
     const { fresh = false } = options;
@@ -179,7 +198,7 @@ async function startSock(options = {}) {
     }
 
     if (fresh) {
-        try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info'); } catch {}
+        try { fs.removeSync('./auth_info'); } catch {}
     } else {
         await initAuthSession();
     }
@@ -222,14 +241,11 @@ async function startSock(options = {}) {
                 if (fs.existsSync('./auth_info/creds.json')) {
                     const credsData = fs.readFileSync('./auth_info/creds.json');
                     const generatedSession = 'HACKERPRO~' + Buffer.from(credsData).toString('base64');
-                    
                     console.log('\n================ 🔑 YOUR SESSION ID ================');
                     console.log(generatedSession);
                     console.log('====================================================\n');
                 }
-            } catch (e) {
-                console.error('Session export error:', e.message);
-            }
+            } catch (e) {}
 
             for (const res of qrClients) {
                 try { res.write(`data: ${JSON.stringify({ connected: true })}\n\n`); res.end(); } catch {}
@@ -246,8 +262,6 @@ async function startSock(options = {}) {
             if (code === DisconnectReason.loggedOut || code === 401) {
                 try { fs.removeSync('./auth_info'); } catch {}
                 setTimeout(() => { if (!isStarting) startSock(); }, 10000);
-            } else if (code === 440) {
-                setTimeout(() => { if (!isStarting) startSock(); }, 30000);
             } else {
                 setTimeout(() => { if (!isStarting) startSock(); }, 10000);
             }
@@ -267,7 +281,6 @@ async function startSock(options = {}) {
             const cmd = COMMANDS.get(targetCmd) || COMMANDS.get(ALIASES.get(targetCmd));
             
             if (!cmd) return;
-            
             await cmd.handler({ sock, from, msg, args, text: args.join(' '), OWNER_NUMBER, BOT_NAME });
         } catch (e) { console.error('❌ Msg error:', e.message); }
     });
@@ -278,6 +291,70 @@ async function startSock(options = {}) {
 startSock();
 
 // =======================================================
+// 🤖 TELEGRAM PAIR BOT INTEGRATION
+// =======================================================
+async function sendTgMessage(chatId, text) {
+    try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' })
+        });
+    } catch (e) {
+        console.error('Telegram Send Error:', e.message);
+    }
+}
+
+async function startTelegramBot() {
+    console.log('🤖 Telegram Pair Bot System Initialized...');
+    let offset = 0;
+
+    while (true) {
+        try {
+            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates?offset=${offset}&timeout=30`);
+            const data = await res.json();
+
+            if (data.ok && data.result.length > 0) {
+                for (const update of data.result) {
+                    offset = update.update_id + 1;
+                    const msg = update.message;
+                    if (!msg || !msg.text) continue;
+
+                    const chatId = msg.chat.id;
+                    const text = msg.text.trim();
+
+                    if (text === '/start') {
+                        await sendTgMessage(chatId, `⚡ *Welcome to ${BOT_NAME} Pair Bot!*\n\nTo get your WhatsApp Pair Code, use command:\n\`/pair 94760601455\``);
+                    } else if (text.startsWith('/pair')) {
+                        const parts = text.split(/\s+/);
+                        const phone = parts[1];
+
+                        if (!phone) {
+                            await sendTgMessage(chatId, `⚠️ *අංකය ඇතුළත් කරන්න!*\n\nUsage: \`/pair 94760601455\``);
+                            continue;
+                        }
+
+                        await sendTgMessage(chatId, `⏳ *Generating Pairing Code for ${phone}... Please wait!*`);
+
+                        try {
+                            const code = await generatePairingCode(phone);
+                            await sendTgMessage(chatId, `🎉 *YOUR PAIRING CODE:*\n\n\`${code}\`\n\n📌 _Tap the code to copy and enter in WhatsApp!_`);
+                        } catch (err) {
+                            await sendTgMessage(chatId, `❌ *Error:* ${err.message}`);
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+}
+
+// Start Telegram Bot
+startTelegramBot();
+
+// =======================================================
 // 🌐 EXPRESS WEB SERVER & PAIRING API
 // =======================================================
 const app = express();
@@ -285,30 +362,11 @@ app.use(express.json());
 
 app.post('/api/pair', async (req, res) => {
     try {
-        let phone = (req.body.phone || '').replace(/[^0-9]/g, '');
-
-        if (!phone || phone.length < 10) {
-            return res.status(400).json({ error: 'කරුණාකර නිවැරදි Phone Number එකක් ඇතුළත් කරන්න (උදා: 94760601455)' });
-        }
-
-        if (isConnected) {
-            return res.json({ error: 'WhatsApp දැනටමත් සම්බන්ධ වී ඇත!' });
-        }
-
-        await startSock({ fresh: true });
-        await new Promise(r => setTimeout(r, 4000));
-
-        if (sock && !sock.authState.creds.registered) {
-            const rawCode = await sock.requestPairingCode(phone);
-            const formattedCode = rawCode?.match(/.{1,4}/g)?.join('-') || rawCode;
-            console.log(`🎟️ Pair Code Generated: ${formattedCode}`);
-            return res.json({ success: true, code: formattedCode });
-        } else {
-            return res.json({ error: 'Session එක සක්‍රීය කිරීමට නොහැකි විය. නැවත උත්සාහ කරන්න.' });
-        }
+        const phone = req.body.phone || '';
+        const code = await generatePairingCode(phone);
+        return res.json({ success: true, code });
     } catch (e) {
-        console.error('❌ Pairing Error:', e.message);
-        return res.status(500).json({ error: 'Pairing Code ලබා ගැනීමට නොහැකි විය. Phone Number එක පරීක්ෂා කරන්න.' });
+        return res.status(500).json({ error: e.message || 'Pairing Code ලබා ගැනීමට නොහැකි විය.' });
     }
 });
 
@@ -316,180 +374,44 @@ app.get('/api/status', (req, res) => {
     res.json({ connected: isConnected, name: BOT_NAME });
 });
 
-app.get('/api/qr', async (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    if (isConnected) {
-        res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
-        return res.end();
-    }
-
-    if (latestQR) {
-        try {
-            const dataUrl = await QRCode.toDataURL(latestQR, { width: 300 });
-            res.write(`data: ${JSON.stringify({ qr: dataUrl })}\n\n`);
-        } catch {}
-    }
-
-    qrClients.add(res);
-    req.on('close', () => qrClients.delete(res));
-});
-
 const HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HACKER PRO ULTRA</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>HACKER PRO PAIR PORTAL</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Roboto,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box;font-family:sans-serif}
 body{background:#060917;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff;padding:20px}
-.c{background:rgba(10,14,39,.85);border:1px solid rgba(255,255,255,.1);border-radius:24px;padding:36px;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.8);backdrop-filter:blur(10px)}
-.h{text-align:center;margin-bottom:22px}
-.li{width:56px;height:56px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px;box-shadow:0 0 20px rgba(0,210,255,.4)}
-h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.sub{color:#6b7280;font-size:11px;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
-.sb{text-align:center;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;margin-bottom:18px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:8px}
-.dot{width:8px;height:8px;border-radius:50%;background:#ff6b6b;display:inline-block}
-.dot.on{background:#00ff88;box-shadow:0 0 10px #00ff88}
-.iw{position:relative;margin-top:10px}
-.iw input{width:100%;padding:14px 14px 14px 42px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:15px;outline:none;font-family:monospace}
-.iw input:focus{border-color:#00d2ff}
-.ii{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;opacity:.6}
-.gb{width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,#00d2ff,#3a7bd5);border:none;border-radius:12px;color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s}
-.gb:hover{opacity:.9}
-.gb:disabled{opacity:.5;cursor:not-allowed}
-.cb{margin-top:18px;padding:20px;background:linear-gradient(135deg,rgba(0,210,255,.08),rgba(58,123,213,.08));border:2px solid rgba(0,210,255,.3);border-radius:14px;text-align:center;display:none}
-.cb.show{display:block}
-.cl{font-size:11px;color:#9ca3af;text-transform:uppercase;margin-bottom:8px}
-.code{font-size:32px;font-weight:900;letter-spacing:4px;background:linear-gradient(90deg,#00d2ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:monospace;cursor:pointer}
-.err{margin-top:12px;padding:10px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:10px;color:#ff6b6b;font-size:12px;text-align:center;display:none}
-.err.show{display:block}
-.conn{display:none;text-align:center;padding:20px 10px}
-.conn.show{display:block}
-.conn .ic{font-size:48px;margin-bottom:10px}
-.conn h2{color:#00ff88;font-size:18px;margin-bottom:4px}
-.conn p{color:#9ca3af;font-size:12px}
-.steps{margin-top:16px;padding:14px;background:rgba(255,255,255,.03);border-radius:12px;font-size:11px;line-height:1.7;color:#9ca3af}
-.steps b{color:#00d2ff;text-transform:uppercase;font-size:10px;letter-spacing:1px;display:block;margin-bottom:4px}
+.c{background:rgba(10,14,39,.9);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:30px;max-width:440px;width:100%;text-align:center}
+h1{font-size:22px;color:#00d2ff;margin-bottom:15px}
+input{width:100%;padding:12px;background:rgba(255,255,255,.05);border:1px solid #333;border-radius:10px;color:#fff;font-size:16px;margin-bottom:10px;text-align:center}
+button{width:100%;padding:12px;background:#00d2ff;border:none;border-radius:10px;color:#000;font-weight:bold;cursor:pointer}
+.code{font-size:28px;margin-top:15px;color:#00ff88;font-family:monospace;letter-spacing:3px}
 </style>
 </head>
 <body>
 <div class="c">
-    <div class="h">
-        <div class="li">⚡</div>
-        <h1>HACKER PRO ULTRA</h1>
-        <div class="sub">WhatsApp Pair Portal</div>
-    </div>
-    
-    <div class="sb"><span class="dot" id="dot"></span><span id="st">Checking Status...</span></div>
-    
-    <div id="linked-view" class="conn">
-        <div class="ic">🎉</div>
-        <h2>Connected Successfully!</h2>
-        <p>Hacker Pro Bot is actively connected to WhatsApp.</p>
-    </div>
-
-    <div id="auth-view">
-        <div class="iw">
-            <span class="ii">📱</span>
-            <input type="text" id="phone" placeholder="94760601455" value="94760601455">
-        </div>
-        <button class="gb" id="pair-btn" onclick="getPairCode()">GET PAIRING CODE</button>
-        
-        <div class="cb" id="code-box">
-            <div class="cl">Click code to copy</div>
-            <div class="code" id="code-val" onclick="copyCode()">---- ----</div>
-        </div>
-
-        <div class="steps">
-            <b>How to Link:</b>
-            1. Open WhatsApp on your phone.<br>
-            2. Tap Settings > Linked Devices > Link a Device.<br>
-            3. Tap "Link with phone number instead" & enter the code above.
-        </div>
-        
-        <div class="err" id="err-box"></div>
-    </div>
+    <h1>⚡ HACKER PRO PORTAL</h1>
+    <input type="text" id="phone" value="94760601455" placeholder="Phone Number">
+    <button onclick="getPairCode()">GET PAIRING CODE</button>
+    <div class="code" id="code-val"></div>
 </div>
-
 <script>
 async function getPairCode() {
-    const phoneInput = document.getElementById('phone').value.trim();
-    const btn = document.getElementById('pair-btn');
-    const errBox = document.getElementById('err-box');
-    const codeBox = document.getElementById('code-box');
+    const phone = document.getElementById('phone').value;
     const codeVal = document.getElementById('code-val');
-    
-    errBox.classList.remove('show');
-    codeBox.classList.remove('show');
-    
-    if(!phoneInput) {
-        errBox.innerText = "කරුණාකර Phone Number එක ඇතුළත් කරන්න!";
-        errBox.classList.add('show');
-        return;
-    }
-    
-    btn.disabled = true;
-    btn.innerText = "GENERATING CODE (WAIT 5s)...";
-    
+    codeVal.innerText = "WAITING...";
     try {
         const res = await fetch('/api/pair', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ phone: phoneInput })
+            body: JSON.stringify({ phone })
         });
         const data = await res.json();
-        
-        if (data.success && data.code) {
-            codeVal.innerText = data.code;
-            codeBox.classList.add('show');
-        } else {
-            errBox.innerText = data.error || "Pairing Code ලබා ගැනීමට නොහැකි විය.";
-            errBox.classList.add('show');
-        }
-    } catch(e) {
-        errBox.innerText = "Server Error! කරුණාකර නැවත උත්සාහ කරන්න.";
-        errBox.classList.add('show');
-    } finally {
-        btn.disabled = false;
-        btn.innerText = "GET PAIRING CODE";
-    }
+        if(data.code) codeVal.innerText = data.code;
+        else codeVal.innerText = data.error || "Error";
+    } catch { codeVal.innerText = "Error"; }
 }
-
-function copyCode() {
-    const code = document.getElementById('code-val').innerText;
-    if (code && code !== '---- ----') {
-        navigator.clipboard.writeText(code.replace('-', ''));
-        alert('Pairing code copied: ' + code);
-    }
-}
-
-function checkStatus() {
-    fetch('/api/status').then(r => r.json()).then(d => {
-        const dot = document.getElementById('dot');
-        const st = document.getElementById('st');
-        const authView = document.getElementById('auth-view');
-        const linkedView = document.getElementById('linked-view');
-        
-        if (d.connected) {
-            dot.classList.add('on');
-            st.innerText = "Online & Connected";
-            authView.style.display = 'none';
-            linkedView.classList.add('show');
-        } else {
-            dot.classList.remove('on');
-            st.innerText = "Disconnected";
-            authView.style.display = 'block';
-            linkedView.classList.remove('show');
-        }
-    }).catch(() => {});
-}
-
-setInterval(checkStatus, 4000);
-checkStatus();
 </script>
 </body>
 </html>`;
@@ -497,4 +419,4 @@ checkStatus();
 app.get('/', (req, res) => res.send(HTML));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌐 Server active on port ${PORT}`));
+app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
