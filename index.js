@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — Baileys 6.6.0 Edition (Faable Storage & Session Fixed)
+// 🔥 HACKER PRO ULTRA — Baileys Standalone Edition (Index Only)
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -20,13 +20,13 @@ process.on('unhandledRejection', (e) => console.error('🛡️', e?.message || e
 const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
 console.log(`💾 [RAM] ${getRAM()} MB`);
 
-// ============ SESSION & CLEANUP SYSTEM ============
+// ============ SESSION & STORAGE CLEANUP SYSTEM ============
 async function initAuthSession() {
     if (!fs.existsSync('./auth_info')) {
         fs.mkdirSync('./auth_info', { recursive: true });
     }
     
-    // Environment Variables වල SESSION_ID තිබේ නම් creds.json එක Restore කිරීම
+    // Environment Variable එකෙන් SESSION_ID Restore කිරීම
     if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
         try {
             const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
@@ -34,7 +34,7 @@ async function initAuthSession() {
             fs.writeFileSync('./auth_info/creds.json', jsonString);
             console.log('✅ SESSION_ID එකෙන් Auth Restore විය!');
         } catch (err) {
-            console.error('❌ SESSION_ID Restore කිරීම අසාර්ථකයි:', err.message);
+            console.error('❌ SESSION_ID Restore error:', err.message);
         }
     }
 }
@@ -56,7 +56,7 @@ function purgeOldKeys() {
     }
 }
 
-// සෑම පැයකටම වරක් අමතර Storage පිරෙන Pre-Keys Auto Delete කිරීම
+// Storage/RAM පිරෙන එක වැළැක්වීමට සෑම පැයකටම වරක් Auto Clean වීම
 setInterval(purgeOldKeys, 1000 * 60 * 60);
 
 // ============ HELPERS ============
@@ -122,12 +122,13 @@ async function ytDownload(url, mode) {
     return await ytdlp(url, mode);
 }
 
-// ============ COMMANDS ============
+// ============ BUILT-IN COMMANDS (INDEX ONLY) ============
 const COMMANDS = new Map();
 const ALIASES = new Map();
+
 function register(name, aliases, handler, opts = {}) {
-    COMMANDS.set(name, { handler, opts });
-    (aliases || []).forEach(a => ALIASES.set(a, name));
+    COMMANDS.set(name.toLowerCase(), { handler, opts });
+    (aliases || []).forEach(a => ALIASES.set(a.toLowerCase(), name.toLowerCase()));
 }
 
 register('ytmp3', ['yta', 'song'], async (c) => { const { sock, from, msg, args } = c; if (!args[0]) return sock.sendMessage(from, { text: '🎵 .ytmp3 <name>' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); try { let url = args.join(' '), title = 'audio'; if (!url.includes('youtu')) { const r = await ytSearch(url); if (!r) throw new Error('නෑ!'); url = r.url; title = r.title; } const dl = await ytDownload(url, 'audio'); if (!dl) throw new Error('Fail!'); await sock.sendMessage(from, { audio: { url: dl }, mimetype: 'audio/mpeg', fileName: `${title}.mp3`, ptt: false }, { quoted: msg }); await sock.sendMessage(from, { delete: s.key }).catch(() => {}); } catch (e) { await sock.sendMessage(from, { text: `❌ ${e.message}`, edit: s.key }); } }, { public: true });
@@ -217,7 +218,6 @@ async function startSock(options = {}) {
             isStarting = false;
             latestQR = null;
 
-            // Connected වූ පසු Faable Environment Variables සඳහා SESSION_ID ලබා ගැනීම
             try {
                 if (fs.existsSync('./auth_info/creds.json')) {
                     const credsData = fs.readFileSync('./auth_info/creds.json');
@@ -260,11 +260,15 @@ async function startSock(options = {}) {
             if (!msg?.message || msg.key.fromMe) return;
             const from = msg.key.remoteJid;
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
+            
             if (!text.startsWith('.')) return;
             const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
-            const cmd = COMMANDS.get(cmdName.toLowerCase()) || COMMANDS.get(ALIASES.get(cmdName.toLowerCase()));
+            const targetCmd = cmdName.toLowerCase();
+            const cmd = COMMANDS.get(targetCmd) || COMMANDS.get(ALIASES.get(targetCmd));
+            
             if (!cmd) return;
-            await cmd.handler({ sock, from, msg, args });
+            
+            await cmd.handler({ sock, from, msg, args, text: args.join(' '), OWNER_NUMBER, BOT_NAME });
         } catch (e) { console.error('❌ Msg error:', e.message); }
     });
 
