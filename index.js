@@ -3,15 +3,21 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
 const pino = require('pino');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
 
 // ============ SETTINGS ============
 let settings = { ownerNumber: '94760601455', botName: 'Hacker Pro Md' };
 try { settings = { ...settings, ...require('./settings.js') }; console.log('✅ settings loaded'); } catch {}
-let OWNER_NUMBER = settings.ownerNumber;
+const OWNER_NUMBER = settings.ownerNumber;
 const BOT_NAME = settings.botName;
 const TELEGRAM_TOKEN = process.env.TG_TOKEN || '8703196263:AAFI9Ht3VLisyGsRj3fpVL40X6mRkWlYKHw';
 const AUTH_DIR = './auth_info';
+const CREDS_FILE = `${AUTH_DIR}/creds.json`;
 
 // ============ ERROR HANDLERS ============
 process.on('uncaughtException', (e) => console.error('🛡️ Uncaught:', e?.message || e));
@@ -20,40 +26,61 @@ process.on('unhandledRejection', (e) => console.error('🛡️ Unhandled:', e?.m
 const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
 console.log(`💾 [RAM] ${getRAM()} MB`);
 
-// ============ SESSION MANAGEMENT ============
-async function initAuthSession() {
+// ============ AUTH HELPERS ============
+function ensureAuthDir() {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
-    if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
-        try {
-            const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
-            const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
-            fs.writeFileSync(`${AUTH_DIR}/creds.json`, jsonString);
-            console.log('✅ SESSION_ID Restored successfully!');
-        } catch (err) {
-            console.error('❌ SESSION_ID Restore error:', err.message);
-        }
-    }
 }
 
-// 🔥 Auto reset — auth_info folder delete කරන්න ඕන නෑ
-async function resetSession() {
+// 🔥 KEY FIX: folder delete නොකර creds.json එකට empty {} write කරනවා
+function resetCreds() {
     try {
-        if (fs.existsSync(AUTH_DIR)) {
-            fs.removeSync(AUTH_DIR);
-            console.log('🧹 Auth session cleared (auto reset)');
-        }
-        fs.mkdirSync(AUTH_DIR, { recursive: true });
+        ensureAuthDir();
+        // creds.json → empty object (Baileys fresh session කියලා හඳුනාගන්නවා)
+        fs.writeFileSync(CREDS_FILE, JSON.stringify({}));
+        // අනිත් session files ඔක්කොම delete (creds.json එක තියලා)
+        fs.readdirSync(AUTH_DIR).forEach(f => {
+            if (f !== 'creds.json') {
+                try { fs.unlinkSync(`${AUTH_DIR}/${f}`); } catch {}
+            }
+        });
+        console.log('🔄 Creds reset (empty {})');
     } catch (e) {
         console.error('Reset error:', e.message);
     }
 }
 
+async function initAuthSession() {
+    ensureAuthDir();
+    // SESSION_ID එකක් තියෙනවා නම් restore කරන්න
+    if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
+        try {
+            const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
+            const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
+            fs.writeFileSync(CREDS_FILE, jsonString);
+            console.log('✅ SESSION_ID Restored successfully!');
+        } catch (err) {
+            console.error('❌ SESSION_ID Restore error:', err.message);
+        }
+    }
+    // creds.json නැත්නම් empty create
+    if (!fs.existsSync(CREDS_FILE)) {
+        fs.writeFileSync(CREDS_FILE, JSON.stringify({}));
+    }
+}
+
+function isRegistered() {
+    try {
+        if (!fs.existsSync(CREDS_FILE)) return false;
+        const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8') || '{}');
+        return !!creds.registered;
+    } catch { return false; }
+}
+
 function purgeOldKeys() {
     try {
         if (!fs.existsSync(AUTH_DIR)) return;
-        const files = fs.readdirSync(AUTH_DIR);
         let count = 0;
-        files.forEach(file => {
+        fs.readdirSync(AUTH_DIR).forEach(file => {
             if (file.startsWith('pre-key-') || file.startsWith('session-')) {
                 try { fs.unlinkSync(`${AUTH_DIR}/${file}`); count++; } catch {}
             }
@@ -63,12 +90,10 @@ function purgeOldKeys() {
 }
 setInterval(purgeOldKeys, 1000 * 60 * 60);
 
-// ============ HELPERS ============
-const isOwner = (ctx) => ctx.msg?.key?.fromMe || (ctx.from || '').split('@')[0].split(':')[0] === OWNER_NUMBER;
-
 // ============ COMMANDS ============
 const COMMANDS = new Map();
 const ALIASES = new Map();
+
 function register(name, aliases, handler, opts = {}) {
     COMMANDS.set(name.toLowerCase(), { handler, opts });
     (aliases || []).forEach(a => ALIASES.set(a.toLowerCase(), name.toLowerCase()));
@@ -102,20 +127,39 @@ register('owner', ['creator'], async (c) => {
 // ============ SOCKET MANAGEMENT ============
 let sock = null;
 let isConnected = false;
+let isStarting = false;
 let reconnectTimer = null;
 let pairingInProgress = false;
-let currentPairPhone = null;
+let keepAlive = false; // 🔥 pair වෙනකොට auto-reconnect off
 const logger = pino({ level: 'silent' });
 
+async function killSocket() {
+    if (!sock) return;
+    try { sock.ev.removeAllListeners(); } catch {}
+    try { sock.ws?.close(); } catch {}
+    try { sock.end(undefined); } catch {}
+    sock = null;
+    isConnected = false;
+    await new Promise(r => setTimeout(r, 800));
+}
+
 async function startSock() {
+    if (isStarting) {
+        console.log('⏳ Socket already starting...');
+        // wait for it
+        let waited = 0;
+        while (isStarting && waited < 10000) {
+            await new Promise(r => setTimeout(r, 500));
+            waited += 500;
+        }
+        return sock;
+    }
+
+    isStarting = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
-    // පරණ socket close කරන්න
-    if (sock) {
-        try { sock.ev.removeAllListeners('connection.update'); } catch {}
-        try { sock.end(undefined); } catch {}
-        sock = null;
-    }
+    // පරණ socket kill කරන්න
+    await killSocket();
 
     await initAuthSession();
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -129,7 +173,8 @@ async function startSock() {
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         syncFullHistory: false,
         markOnlineOnConnect: false,
-        mobile: false
+        mobile: false,
+        getMessage: async () => undefined
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -139,7 +184,7 @@ async function startSock() {
             console.log('✅ WhatsApp Connected!');
             isConnected = true;
             pairingInProgress = false;
-            currentPairPhone = null;
+            keepAlive = true;
         }
 
         if (connection === 'close') {
@@ -147,13 +192,15 @@ async function startSock() {
             const code = lastDisconnect?.error?.output?.statusCode;
             console.log(`❌ Socket Closed (Code: ${code})`);
 
+            // Logged out → reset creds (folder delete නෑ)
             if (code === DisconnectReason.loggedOut || code === 401) {
-                console.log('🧹 Logged out → clearing session');
-                await resetSession();
+                console.log('🧹 Logged out → resetting creds');
+                resetCreds();
+                keepAlive = false;
             }
 
-            // Pairing කරන අතරේ auto-reconnect නවත්තන්න
-            if (!pairingInProgress) {
+            // Pair වෙන අතරේ auto-reconnect නවත්තන්න
+            if (keepAlive && !pairingInProgress) {
                 reconnectTimer = setTimeout(() => startSock(), 5000);
             }
         }
@@ -176,10 +223,13 @@ async function startSock() {
         } catch (e) { console.error('Msg error:', e.message); }
     });
 
+    // Socket create උනාට පස්සේ ටිකක් ඉඩ දෙන්න
+    await new Promise(r => setTimeout(r, 1500));
+    isStarting = false;
     return sock;
 }
 
-// 🔥 FIXED getPairCode — auto reset if needed
+// ============ PAIR CODE ============
 async function getPairCode(phone) {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     if (!cleanPhone || cleanPhone.length < 10) {
@@ -191,41 +241,53 @@ async function getPairCode(phone) {
     }
 
     if (pairingInProgress) {
-        throw new Error('Pair code එකක් දැනටමත් generate වෙමින් පවතී. තප්පර කිහිපයක් ඉන්න.');
+        throw new Error('Pair code එකක් දැනටමත් generate වෙමින් පවතී. තප්පර 30ක් ඉන්න.');
     }
 
     pairingInProgress = true;
+    keepAlive = false; // auto-reconnect off
 
     try {
-        // Socket එකක් නැත්නම් හදන්න
-        if (!sock) {
-            await startSock();
-            await new Promise(r => setTimeout(r, 2000));
+        // 🔥 Already registered නම් → creds empty කරන්න (folder delete නෑ)
+        if (isRegistered()) {
+            console.log('⚠️ Session already registered → resetting creds...');
+            resetCreds();
         }
 
-        // 🔥 Already registered නම් → auto reset කරලා fresh socket
-        if (sock?.authState?.creds?.registered) {
-            console.log('⚠️ Session already registered → auto resetting...');
-            await resetSession();
-            await startSock();
-            await new Promise(r => setTimeout(r, 2000));
-        }
+        // පරණ socket kill
+        await killSocket();
+
+        // Fresh socket හදන්න
+        console.log('🔧 Creating fresh socket for pair code...');
+        await startSock();
+
+        // Socket ready වෙන්න ඉන්නවා
+        await new Promise(r => setTimeout(r, 2500));
 
         if (!sock) throw new Error('Socket init fail. ආයෙ try කරන්න.');
 
-        // Baileys එකට socket ready වෙන්න ටිකක් ඉඩ දෙන්න
-        await new Promise(r => setTimeout(r, 1000));
+        // Double-check — registered නම් fail
+        if (sock.authState?.creds?.registered) {
+            throw new Error('Session reset fail. ආයෙ try කරන්න.');
+        }
 
+        console.log(`🔑 Requesting pair code for ${cleanPhone}...`);
         const code = await sock.requestPairingCode(cleanPhone);
-        currentPairPhone = cleanPhone;
-        console.log(`🔑 Pair code: ${code} for ${cleanPhone}`);
+        console.log(`✅ Pair code: ${code}`);
 
-        // Pair code එක use කරන්න මිනිත්තු 2ක් වගේ ඉඩ දෙන්න
-        setTimeout(() => { pairingInProgress = false; }, 120000);
+        // Pair වෙනකන් wait කරන්න — 60s
+        setTimeout(() => {
+            pairingInProgress = false;
+            keepAlive = true;
+            console.log('🔓 Pairing lock released');
+        }, 60000);
 
         return code?.match(/.{1,4}/g)?.join('-') || code;
+
     } catch (e) {
         pairingInProgress = false;
+        keepAlive = true;
+        console.error('Pair error:', e.message);
         throw e;
     }
 }
@@ -256,22 +318,23 @@ async function startTelegramBot() {
                     const text = msg.text.trim();
 
                     if (text === '/start') {
-                        await sendTgMessage(chatId, `⚡ *${BOT_NAME} Pairing Bot*\n\n/pair 94760601455\n/reset — session clear කරන්න`);
+                        await sendTgMessage(chatId, `⚡ *${BOT_NAME} Pair Bot*\n\n/pair 94760601455\n/reset`);
                     } else if (text.startsWith('/pair')) {
                         const phone = text.split(/\s+/)[1];
                         if (!phone) { await sendTgMessage(chatId, '⚠️ `/pair 94760601455`'); continue; }
                         await sendTgMessage(chatId, '⏳ Generating Pair Code...');
                         try {
                             const code = await getPairCode(phone);
-                            await sendTgMessage(chatId, `🎉 *Your Pair Code:*\n\n\`${code}\`\n\n_WhatsApp → Linked Devices → Link with Phone Number_`);
+                            await sendTgMessage(chatId, `🎉 *Your Pair Code:*\n\n\`${code}\`\n\n📱 WhatsApp → Linked Devices → Link with Phone Number`);
                         } catch (err) {
                             await sendTgMessage(chatId, `❌ *Error:* ${err.message}`);
                         }
                     } else if (text === '/reset') {
-                        await resetSession();
-                        try { if (sock) sock.end(undefined); } catch {}
-                        sock = null; isConnected = false; pairingInProgress = false;
-                        await sendTgMessage(chatId, '✅ Session reset complete. දැන් `/pair` යවන්න.');
+                        resetCreds();
+                        await killSocket();
+                        pairingInProgress = false;
+                        keepAlive = false;
+                        await sendTgMessage(chatId, '✅ Session reset. දැන් `/pair` යවන්න.');
                     }
                 }
             }
@@ -304,12 +367,12 @@ app.get('/pair', async (req, res) => {
     }
 });
 
-// 🔥 Reset endpoint — auth_info delete කරන්න ඕන නෑ
 app.get('/reset', async (req, res) => {
     try {
-        await resetSession();
-        try { if (sock) sock.end(undefined); } catch {}
-        sock = null; isConnected = false; pairingInProgress = false;
+        resetCreds();
+        await killSocket();
+        pairingInProgress = false;
+        keepAlive = false;
         res.json({ success: true, message: 'Session reset complete' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -320,7 +383,7 @@ app.get('/status', (req, res) => {
     res.json({
         connected: isConnected,
         pairing: pairingInProgress,
-        registered: !!sock?.authState?.creds?.registered,
+        registered: isRegistered(),
         uptime: process.uptime(),
         ram: getRAM()
     });
@@ -333,11 +396,13 @@ app.get('/', (req, res) => {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HACKER PRO PAIRING PORTAL</title>
 <style>
-body{background:#0a0e1a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:15px;box-sizing:border-box}
+*{box-sizing:border-box}
+body{background:#0a0e1a;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:15px}
 .box{background:#131b2e;padding:25px;border-radius:15px;border:1px solid #1f2d4d;width:100%;max-width:400px;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,.5)}
-h2{color:#00d2ff;margin-bottom:20px}
-input{width:100%;padding:12px;margin-bottom:15px;border-radius:8px;border:1px solid #2a3b5c;background:#0a0e1a;color:#fff;text-align:center;font-size:16px;box-sizing:border-box}
-button{width:100%;padding:12px;border-radius:8px;border:none;background:#00d2ff;color:#000;font-weight:bold;font-size:16px;cursor:pointer;margin-bottom:8px}
+h2{color:#00d2ff;margin:0 0 20px;font-size:20px}
+input{width:100%;padding:12px;margin-bottom:12px;border-radius:8px;border:1px solid #2a3b5c;background:#0a0e1a;color:#fff;text-align:center;font-size:16px}
+button{width:100%;padding:12px;border-radius:8px;border:none;background:#00d2ff;color:#000;font-weight:bold;font-size:15px;cursor:pointer;margin-bottom:8px}
+button:disabled{opacity:.5;cursor:not-allowed}
 button.alt{background:#2a3b5c;color:#fff}
 .res{margin-top:15px;font-size:22px;font-family:monospace;color:#00ff88;letter-spacing:2px;min-height:30px;word-break:break-all}
 .status{font-size:12px;color:#8899bb;margin-top:10px}
@@ -346,44 +411,54 @@ button.alt{background:#2a3b5c;color:#fff}
 <body>
 <div class="box">
 <h2>⚡ PAIR CODE GENERATOR</h2>
-<input type="text" id="phone" placeholder="94760601455 (no +)">
-<button onclick="requestPair()">GET PAIR CODE</button>
+<input type="tel" id="phone" placeholder="94760601455 (no +)" value="">
+<button id="btnPair" onclick="requestPair()">GET PAIR CODE</button>
 <button class="alt" onclick="resetSession()">RESET SESSION</button>
 <div class="res" id="result"></div>
-<div class="status" id="status"></div>
+<div class="status" id="status">Loading...</div>
 </div>
 <script>
+const result = document.getElementById('result');
+const btn = document.getElementById('btnPair');
+
 async function requestPair(){
-  const phone=document.getElementById('phone').value;
-  const r=document.getElementById('result');
-  r.style.color='#00d2ff';r.innerText='GENERATING...';
+  const phone = document.getElementById('phone').value.trim();
+  if(!phone){ result.style.color='#ff4757'; result.innerText='Phone number දාන්න'; return; }
+  result.style.color='#00d2ff'; result.innerText='GENERATING...';
+  btn.disabled = true;
   try{
-    const res=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})});
-    const d=await res.json();
-    if(d.code){r.style.color='#00ff88';r.innerText=d.code;}
-    else{r.style.color='#ff4757';r.innerText=d.error||'Failed';}
-  }catch(e){r.style.color='#ff4757';r.innerText='Server Error';}
+    const res = await fetch('/api/pair',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({phone})
+    });
+    const d = await res.json();
+    if(d.code){ result.style.color='#00ff88'; result.innerText=d.code; }
+    else { result.style.color='#ff4757'; result.innerText=d.error||'Failed'; }
+  }catch(e){ result.style.color='#ff4757'; result.innerText='Server Error'; }
+  btn.disabled = false;
 }
+
 async function resetSession(){
-  const r=document.getElementById('result');
-  r.style.color='#ffa500';r.innerText='RESETTING...';
+  result.style.color='#ffa500'; result.innerText='RESETTING...';
   try{
-    const res=await fetch('/reset');
-    const d=await res.json();
-    r.style.color=d.success?'#00ff88':'#ff4757';
-    r.innerText=d.success?'SESSION CLEARED ✓':d.error;
-  }catch(e){r.style.color='#ff4757';r.innerText='Server Error';}
+    const res = await fetch('/reset');
+    const d = await res.json();
+    result.style.color = d.success ? '#00ff88' : '#ff4757';
+    result.innerText = d.success ? 'SESSION CLEARED ✓' : (d.error||'Failed');
+  }catch(e){ result.style.color='#ff4757'; result.innerText='Server Error'; }
 }
+
 setInterval(async()=>{
   try{
-    const res=await fetch('/status');
-    const d=await res.json();
+    const res = await fetch('/status');
+    const d = await res.json();
     document.getElementById('status').innerText =
-      (d.connected?'🟢 Connected':(d.pairing?'🟡 Pairing...':'🔴 Not connected')) +
-      ' | Reg: '+(d.registered?'Yes':'No') +
-      ' | RAM: '+d.ram+'MB';
+      (d.connected?'🟢 Connected':(d.pairing?'🟡 Pairing...':'🔴 Not connected'))
+      + ' | Reg: ' + (d.registered?'Yes':'No')
+      + ' | RAM: ' + d.ram + 'MB';
   }catch(e){}
-},5000);
+},4000);
 </script>
 </body>
 </html>`);
@@ -392,12 +467,15 @@ setInterval(async()=>{
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Server active on port ${PORT}`));
 
-// ============ START ============
-// SESSION_ID එකක් තියෙනවා නම් විතරක් auto-start. නැත්නම් pair code එකෙන් connect කරන්න.
+// ============ STARTUP ============
 (async () => {
+    console.log('🚀 Starting bot...');
+    // SESSION_ID එකක් තියෙනවා නම් විතරක් auto-connect
     if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
+        console.log('📦 SESSION_ID found → auto-connecting...');
+        keepAlive = true;
         await startSock();
     } else {
-        console.log('ℹ️ No SESSION_ID. Pair code එකක් හරහා connect කරන්න.');
+        console.log('ℹ️ No SESSION_ID → use /pair to connect');
     }
 })();
