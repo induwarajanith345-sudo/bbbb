@@ -1,4 +1,4 @@
-// 🔥 HACKER PRO ULTRA — Baileys 6.6.0 Edition (Pair Code Fixed)
+// 🔥 HACKER PRO ULTRA — Baileys 6.6.0 Edition (Faable Storage & Session Fixed)
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs-extra');
@@ -19,6 +19,45 @@ process.on('unhandledRejection', (e) => console.error('🛡️', e?.message || e
 
 const getRAM = () => parseFloat((process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2));
 console.log(`💾 [RAM] ${getRAM()} MB`);
+
+// ============ SESSION & CLEANUP SYSTEM ============
+async function initAuthSession() {
+    if (!fs.existsSync('./auth_info')) {
+        fs.mkdirSync('./auth_info', { recursive: true });
+    }
+    
+    // Environment Variables වල SESSION_ID තිබේ නම් creds.json එක Restore කිරීම
+    if (process.env.SESSION_ID && process.env.SESSION_ID.startsWith('HACKERPRO~')) {
+        try {
+            const base64Data = process.env.SESSION_ID.replace('HACKERPRO~', '');
+            const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
+            fs.writeFileSync('./auth_info/creds.json', jsonString);
+            console.log('✅ SESSION_ID එකෙන් Auth Restore විය!');
+        } catch (err) {
+            console.error('❌ SESSION_ID Restore කිරීම අසාර්ථකයි:', err.message);
+        }
+    }
+}
+
+function purgeOldKeys() {
+    try {
+        if (!fs.existsSync('./auth_info')) return;
+        const files = fs.readdirSync('./auth_info');
+        let count = 0;
+        files.forEach(file => {
+            if (file.startsWith('pre-key-') || file.startsWith('session-')) {
+                fs.unlinkSync(`./auth_info/${file}`);
+                count++;
+            }
+        });
+        if (count > 0) console.log(`🧹 Cleared ${count} old session key files.`);
+    } catch (e) {
+        console.error('Cleanup error:', e.message);
+    }
+}
+
+// සෑම පැයකටම වරක් අමතර Storage පිරෙන Pre-Keys Auto Delete කිරීම
+setInterval(purgeOldKeys, 1000 * 60 * 60);
 
 // ============ HELPERS ============
 async function safeJson(url) {
@@ -107,7 +146,7 @@ register('translate', ['tr'], async (c) => { const { sock, from, msg, args } = c
 register('owner', ['creator'], async (c) => { const { sock, from, msg } = c; try { const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${BOT_NAME} Owner\nTEL:type=CELL;waid=${OWNER_NUMBER}:+${OWNER_NUMBER}\nEND:VCARD`; await sock.sendMessage(from, { contacts: { displayName: `${BOT_NAME} Owner`, contacts: [{ vcard }] } }, { quoted: msg }); } catch {} await sock.sendMessage(from, { text: `👑 +${OWNER_NUMBER}` }, { quoted: msg }); }, { public: true });
 register('ping', ['speed'], async (c) => { const { sock, from, msg } = c; const t = Date.now(); const s = await sock.sendMessage(from, { text: '🏓...' }, { quoted: msg }); await sock.sendMessage(from, { text: `⚡ ${Date.now() - t}ms\n💾 ${getRAM()}MB`, edit: s.key }); }, { public: true });
 register('settings', ['config'], async (c) => { const { sock, from, msg } = c; const up = process.uptime(); await sock.sendMessage(from, { text: `⚙️ ${BOT_NAME}\n📱 +${OWNER_NUMBER}\n⏱️ ${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m\n💾 ${getRAM()} MB` }, { quoted: msg }); }, { public: true });
-register('gc', ['ram'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const b = getRAM(); if (global.gc) global.gc(); await sock.sendMessage(from, { text: `🧹 ${b} → ${getRAM()} MB` }, { quoted: msg }); }, { public: false });
+register('gc', ['ram'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const b = getRAM(); if (global.gc) global.gc(); purgeOldKeys(); await sock.sendMessage(from, { text: `🧹 Memory & Session Cleared:\n${b} → ${getRAM()} MB` }, { quoted: msg }); }, { public: false });
 register('update', ['up'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); const s = await sock.sendMessage(from, { text: '🔄...' }, { quoted: msg }); exec('git pull', { timeout: 60000 }, async (e, out, err) => { if (e) return sock.sendMessage(from, { text: `❌ ${err || e.message}`, edit: s.key }); if (out.includes('Already up to date')) return sock.sendMessage(from, { text: '✅ Up to date!', edit: s.key }); await sock.sendMessage(from, { text: `✅ ${out.slice(0, 500)}`, edit: s.key }); }); }, { public: false });
 register('restart', ['rs'], async (c) => { const { sock, from, msg } = c; if (!isOwner(c)) return sock.sendMessage(from, { text: '❌ Owner only!' }, { quoted: msg }); await sock.sendMessage(from, { text: '🔄 Restarting in 5s...' }, { quoted: msg }); setTimeout(() => process.exit(0), 5000); }, { public: false });
 register('menu', ['help'], async (c) => { const { sock, from, msg } = c; await sock.sendMessage(from, { text: `🔥 *${BOT_NAME}*\n\n📥 .ytmp3 .ytmp4 .fb .tt .ig\n🤖 .ai .imagine .weather .meme .joke .quote .wiki .translate\n👑 .owner .update .restart .gc\nℹ️ .settings .ping .menu` }, { quoted: msg }); }, { public: true });
@@ -140,6 +179,8 @@ async function startSock(options = {}) {
 
     if (fresh) {
         try { fs.removeSync('./auth_info'); console.log('🧹 Cleared auth_info'); } catch {}
+    } else {
+        await initAuthSession();
     }
 
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
@@ -175,6 +216,21 @@ async function startSock(options = {}) {
             isConnected = true;
             isStarting = false;
             latestQR = null;
+
+            // Connected වූ පසු Faable Environment Variables සඳහා SESSION_ID ලබා ගැනීම
+            try {
+                if (fs.existsSync('./auth_info/creds.json')) {
+                    const credsData = fs.readFileSync('./auth_info/creds.json');
+                    const generatedSession = 'HACKERPRO~' + Buffer.from(credsData).toString('base64');
+                    
+                    console.log('\n================ 🔑 YOUR SESSION ID ================');
+                    console.log(generatedSession);
+                    console.log('====================================================\n');
+                }
+            } catch (e) {
+                console.error('Session export error:', e.message);
+            }
+
             for (const res of qrClients) {
                 try { res.write(`data: ${JSON.stringify({ connected: true })}\n\n`); res.end(); } catch {}
             }
@@ -223,7 +279,6 @@ startSock();
 const app = express();
 app.use(express.json());
 
-// API Endpoint for Pairing Code
 app.post('/api/pair', async (req, res) => {
     try {
         let phone = (req.body.phone || '').replace(/[^0-9]/g, '');
@@ -236,10 +291,7 @@ app.post('/api/pair', async (req, res) => {
             return res.json({ error: 'WhatsApp දැනටමත් සම්බන්ධ වී ඇත!' });
         }
 
-        // Clean auth state before new pair code request
         await startSock({ fresh: true });
-
-        // Wait for socket handshake initialization
         await new Promise(r => setTimeout(r, 4000));
 
         if (sock && !sock.authState.creds.registered) {
